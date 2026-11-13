@@ -1,0 +1,48 @@
+# ---------- STM32CubeIDE : sorties de compilation ----------
+Debug/
+Release/
+*.o
+*.d
+*.su
+*.cyclo
+*.elf
+*.map
+
+# ---------- STM32CubeIDE : fichiers locaux ----------
+.metadata/
+.settings/language.settings.xml
+.settings/stm32cubeide.project.prefs
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# ---------- Secrets et journaux ----------
+.env
+*.log
+
+# ---------- Éditeurs ----------
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---------- Système ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Fichiers temporaires Office ----------
+~$*
+.~lock.*#
