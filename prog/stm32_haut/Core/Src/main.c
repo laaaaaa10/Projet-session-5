@@ -124,7 +124,6 @@ int main(void)
   {
     InductiveSensor_Init(&inductive, &clickboard);
   }
-  TempTest_ClickBoard(&hi2c1, clickboard_status);   /* TEMP-TEST */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -135,9 +134,7 @@ int main(void)
     
 
     /* USER CODE BEGIN 3 */
-    printf("Rotation : horaire 800 pas, 560 Hz\r\n");        /* TEMP-TEST */
     Stepper_Rotate(&stepper_rotation, STEPPER_HORAIRE, 800U, 560U);
-    printf("Rotation : antihoraire 200 pas, 560 Hz\r\n");    /* TEMP-TEST */
     Stepper_Rotate(&stepper_rotation, STEPPER_ANTIHORAIRE, 200U, 560U);
 
     /* TU-10 : lecture des 3 capteurs d'étage */

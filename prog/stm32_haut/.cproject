@@ -54,6 +54,8 @@
 									<listOptionValue builtIn="false" value="../Drivers/BSP/InductiveSensor"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/IrDetector"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/RgbLedChain"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/StepperMotor"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/DriveMotor"/>
 									<listOptionValue builtIn="false" value="../Drivers/STM32F4xx_HAL_Driver/Inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/STM32_USB_Device_Library/Core/Inc"/>
@@ -147,6 +149,8 @@
 									<listOptionValue builtIn="false" value="../Drivers/BSP/InductiveSensor"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/IrDetector"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/RgbLedChain"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/StepperMotor"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/DriveMotor"/>
 									<listOptionValue builtIn="false" value="../Drivers/STM32F4xx_HAL_Driver/Inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/STM32_USB_Device_Library/Core/Inc"/>

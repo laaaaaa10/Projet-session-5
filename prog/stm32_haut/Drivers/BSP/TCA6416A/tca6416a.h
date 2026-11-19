@@ -12,7 +12,7 @@
 
 #define TCA6416A_ADDR_ADC         (0x20U << 1) // Carte ADC MCP3423
 
-#define TCA6416A_ADDR_PWM         (0x21U << 1)	// Carte PWM
+#define TCA6416A_ADDR_PWM         (0x20U << 1)	// Carte PWM (la carte repond a 0x20, mesure par le scan I2C)
 
 #define TCA6416A_INPUT_PORT0      0x00U
 #define TCA6416A_INPUT_PORT1      0x01U

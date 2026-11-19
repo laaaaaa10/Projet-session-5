@@ -14,10 +14,10 @@
 /* Trois capteurs d'étage : Omron E2B-M12KS04-WP-C2 (NPN collecteur ouvert, normalement fermé) */
 #define INDUCTIVE_SENSOR_COUNT   3U
 
-/* Entrées P0.x du ClickBoard (connecteur J1) où sont branchées les sorties des capteurs 1, 2 et 3 */
-#define INDUCTIVE_PIN_1          0U
-#define INDUCTIVE_PIN_2          1U
-#define INDUCTIVE_PIN_3          2U
+/* Pins du connecteur J1 du ClickBoard (P0.x) où sont branchées les sorties des capteurs 1, 2 et 3 */
+#define INDUCTIVE_PIN_1          5U
+#define INDUCTIVE_PIN_2          6U
+#define INDUCTIVE_PIN_3          7U
 
 /* Niveau lu quand la cible métallique est détectée.
  * Sortie NC : cible présente = transistor bloqué = la résistance de rappel (3,3 V) tire l'entrée à 1.

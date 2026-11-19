@@ -8,14 +8,11 @@
 #ifndef TEMP_TEST_H_
 #define TEMP_TEST_H_
 
-#include <stdio.h>
 #include "stm32f4xx_hal.h"
 #include "inductive_sensor.h"
 
-/* Scan I2C1 + resultat de ClickBoard_InitPWM, par printf. A appeler une fois apres l'init. */
-void TempTest_ClickBoard(I2C_HandleTypeDef *hi2c, HAL_StatusTypeDef init_status);
-
-/* Lit les 3 capteurs d'etage et affiche les changements (reaffiche l'etat toutes les 3 s). */
+/* A appeler dans la boucle. Lit les 3 capteurs et affiche une ligne avec l'etat des 3 etages
+ * (a chaque passage, au plus toutes les 500 ms, et tout de suite si un capteur change). */
 void TempTest_Floor(InductiveSensor_HandleTypeDef *dev);
 
 #endif /* TEMP_TEST_H_ */

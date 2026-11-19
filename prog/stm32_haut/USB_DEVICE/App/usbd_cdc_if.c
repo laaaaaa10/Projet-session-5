@@ -32,7 +32,7 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+static volatile uint8_t cdc_dtr = 0U;   /* 1 = le PC a ouvert le port COM (DTR actif) */
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -156,6 +156,7 @@ static int8_t CDC_Init_FS(void)
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+  cdc_dtr = 0U;
   return (USBD_OK);
   /* USER CODE END 3 */
 }
@@ -229,7 +230,8 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
     break;
 
     case CDC_SET_CONTROL_LINE_STATE:
-
+      /* pbuf pointe sur la requete : wValue bit 0 = DTR (port ouvert par le PC) */
+      cdc_dtr = ((((USBD_SetupReqTypedef *)pbuf)->wValue & 0x0001U) != 0U) ? 1U : 0U;
     break;
 
     case CDC_SEND_BREAK:
@@ -320,8 +322,14 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
+/* 1 = le PC est connecte (USB configure) ET a ouvert le port COM dans le moniteur serie */
+uint8_t CDC_IsPortOpen(void)
+{
+  return ((cdc_dtr != 0U) && (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED)) ? 1U : 0U;
+}
+
 /* printf -> port COM virtuel (USB CDC, connecteur CN5).
- * Si le PC n'a pas ouvert le port dans le moniteur serie, le texte est simplement perdu. */
+ * Si le port n'est pas ouvert dans le moniteur serie, le texte est simplement perdu. */
 int _write(int file, char *ptr, int len)
 {
   static uint8_t buf[128];
@@ -329,7 +337,7 @@ int _write(int file, char *ptr, int len)
 
   (void)file;
 
-  if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED)
+  if (CDC_IsPortOpen() == 0U)
   {
     return len;
   }
