@@ -11,19 +11,32 @@
 #include "stm32f4xx_hal.h"
 #include "clickboard_io_mux.h"
 
+/* Trois capteurs d'étage : Omron E2B-M12KS04-WP-C2 (NPN collecteur ouvert, normalement fermé) */
+#define INDUCTIVE_SENSOR_COUNT   3U
+
+/* Entrées P0.x du ClickBoard (connecteur J1) où sont branchées les sorties des capteurs 1, 2 et 3 */
+#define INDUCTIVE_PIN_1          0U
+#define INDUCTIVE_PIN_2          1U
+#define INDUCTIVE_PIN_3          2U
+
+/* Niveau lu quand la cible métallique est détectée.
+ * Sortie NC : cible présente = transistor bloqué = la résistance de rappel (3,3 V) tire l'entrée à 1.
+ * Pas de cible = transistor conducteur = entrée à 0. */
+#define INDUCTIVE_ACTIVE_LEVEL   1U
+
 typedef struct
 {
     ClickBoard_HandleTypeDef *clickboard;
 
-    /* TODO : autres champs au besoin */
-
 } InductiveSensor_HandleTypeDef;
 
+/* Le ClickBoard (TCA6416A) doit déjà être initialisé. Configure les 3 entrées. */
 HAL_StatusTypeDef InductiveSensor_Init(
     InductiveSensor_HandleTypeDef *dev,
     ClickBoard_HandleTypeDef *clickboard
 );
 
+/* sensor : 0 à 2. active = 1 si la cible est détectée, 0 sinon. */
 HAL_StatusTypeDef InductiveSensor_Read(
     InductiveSensor_HandleTypeDef *dev,
     uint8_t sensor,

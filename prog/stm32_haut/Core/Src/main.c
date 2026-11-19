@@ -18,13 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "usb_host.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "clickboard_io_mux.h"
 #include "ir_detector.h"
-#include "stepper.h"
+#include "stepper_motor.h"
+#include "inductive_sensor.h"
+#include "temp_test.h"          /* TEMP-TEST */
 
 /* USER CODE END Includes */
 
@@ -55,6 +57,10 @@ TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim12;
 
 /* USER CODE BEGIN PV */
+ClickBoard_HandleTypeDef      clickboard;                            /* ClickBoard sur MikroBus 2 (I2C1) */
+InductiveSensor_HandleTypeDef inductive;                             /* capteurs d'étage */
+HAL_StatusTypeDef             clickboard_status;                     /* HAL_OK = ClickBoard trouvé */
+uint8_t                       floor_active[INDUCTIVE_SENSOR_COUNT];  /* 1 = cible détectée */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,7 +72,6 @@ static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM12_Init(void);
-void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
 
@@ -112,9 +117,14 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM12_Init();
-  MX_USB_HOST_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+  clickboard_status = ClickBoard_InitPWM(&clickboard, &hi2c1);
+  if (clickboard_status == HAL_OK)
+  {
+    InductiveSensor_Init(&inductive, &clickboard);
+  }
+  TempTest_ClickBoard(&hi2c1, clickboard_status);   /* TEMP-TEST */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -122,12 +132,20 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    MX_USB_HOST_Process();
     
 
     /* USER CODE BEGIN 3 */
+    printf("Rotation : horaire 800 pas, 560 Hz\r\n");        /* TEMP-TEST */
     Stepper_Rotate(&stepper_rotation, STEPPER_HORAIRE, 800U, 560U);
+    printf("Rotation : antihoraire 200 pas, 560 Hz\r\n");    /* TEMP-TEST */
     Stepper_Rotate(&stepper_rotation, STEPPER_ANTIHORAIRE, 200U, 560U);
+
+    /* TU-10 : lecture des 3 capteurs d'étage */
+    for (uint8_t i = 0U; i < INDUCTIVE_SENSOR_COUNT; i++)
+    {
+      InductiveSensor_Read(&inductive, i, &floor_active[i]);
+    }
+    TempTest_Floor(&inductive);   /* TEMP-TEST */
 
   }
   /* USER CODE END 3 */
