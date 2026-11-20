@@ -21,6 +21,8 @@
 #include "usb_host.h"
 #include <stdio.h>      /* snprintf */
 #include "escpos.h"
+#include "impression.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -115,48 +117,39 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  /* --- Etapa 2 : billete fijo, sin CAN --- */
-  static uint8_t memoire[256];    /* static: no ocupa la pila */
-  EscPosTampon billet;
+  /* --- Etapa 2 : datos escritos a mano (en la etapa 4 llegarán por CAN) --- */
+  /* --- Etapa 2 : datos escritos a mano (en la etapa 4 llegarán por CAN) --- */
+    DonneesBillet donnees = {
+        .transaction = 7,
+        .place       = 14,
+        .annee = 26, .mois = 11, .jour = 19,
+        .heure = 9, .minute = 45, .seconde = 7
+    };
 
-  EscPos_Init(&billet, memoire, sizeof(memoire));
-  EscPos_Reinitialiser(&billet);
+    static uint8_t memoire[256];
+    EscPosTampon billet;
+    EscPos_Init(&billet, memoire, sizeof(memoire));
 
-  /* Encabezado centrado */
-  EscPos_Alignement(&billet, 1);
-  EscPos_TailleDouble(&billet, true);
-  EscPos_Gras(&billet, true);
-  EscPos_Ligne(&billet, "ESA");
-  EscPos_TailleDouble(&billet, false);
-  EscPos_Gras(&billet, false);
-  EscPos_Ligne(&billet, "Cegep Limoilou");
-  EscPos_Ligne(&billet, "--------------------------------");
+    bool ok = Impression_ComposerBillet(&donnees, &billet);
 
-  /* Detalles a la izquierda */
-  EscPos_Alignement(&billet, 0);
-  EscPos_Ligne(&billet, "Date  : 2026-11-19");
-  EscPos_Ligne(&billet, "Heure : 13:45:07");
-  EscPos_Ligne(&billet, "Place : E1.3");
-  EscPos_Ligne(&billet, "--------------------------------");
+    /* Informe en PuTTY */
+    char texte[80];
+    int n = snprintf(texte, sizeof(texte), "Billet : %u octets, ok = %u\r\n",
+                     billet.taille, ok);
+    HAL_UART_Transmit(&huart2, (uint8_t *)texte, n, 100);
 
-  /* Número y código de barras centrados */
-  EscPos_Alignement(&billet, 1);
-  EscPos_Ligne(&billet, "No de transaction");
-  EscPos_Code128(&billet, "004213", 80, 3);
-  EscPos_Avancer(&billet, 4);
+    if (ok)
+    {
+        const char debut[] = "--- DEBUT BILLET ---\r\n";
+        const char fin[]   = "\r\n--- FIN BILLET ---\r\n";
 
-  /* Informe en PuTTY (USART2) */
-  char texte[80];
-  int n = snprintf(texte, sizeof(texte), "Billet : %u octets, debordement = %u\r\n",
-                   billet.taille, billet.debordement);
-  HAL_UART_Transmit(&huart2, (uint8_t *)texte, n, 100);
+        HAL_UART_Transmit(&huart2, (uint8_t *)debut, sizeof(debut) - 1, 100);
+        HAL_UART_Transmit(&huart2, memoire, billet.taille, 1000);   /* prueba: a PuTTY */
+        HAL_UART_Transmit(&huart2, (uint8_t *)fin, sizeof(fin) - 1, 100);
+    }
 
-  /* Enviar a la impresora (USART3) solo si el billete está completo */
-  if (!billet.debordement)
-  {
-      HAL_UART_Transmit(&huart3, memoire, billet.taille, 1000);
-  }
-
+  /* USER CODE END 2 */
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
