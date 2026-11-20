@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Test ESA : ID-12LA sur UART0 + RNG sur GPIO17 (CM5 / Pi 5).
+"""Lecteur RFID ID-12LA : UART0 + RNG sur GPIO17 (CM5 / Pi 5).
 
-Lancement sur le Pi : sudo python3 test_rfid.py
-Delai modifiable :    sudo python3 test_rfid.py --delai-ms 1000
+Depuis le projet : sudo python3 prog/rpi/main.py
+Test direct : sudo python3 prog/rpi/modules/lecteur_nfc_rfid.py
+Options : --port /dev/ttyAMA0 --gpio 17 --chip 0 --delai-ms 500
 
-Ce programme affiche des decisions de lecture. Il ne modifie aucun compte
-et ne commande aucun actionneur. Une lecture refusee n'est jamais rejouee
-automatiquement : retirer puis representer le badge.
+LecteurRFID s'ouvre avec un bloc ``with`` ; lire() rend les evenements
+disponibles sans attendre une trame ni la fin du delai de rearmement.
+Seul le programme principal decide quoi faire d'un identifiant accepte.
+ACCEPTE signifie lecture valide, pas autorisation de compte.
+
+Le delai de 500 ms concerne le meme identifiant apres son retrait.
+Une presentation refusee n'est jamais rejouee automatiquement.
 
 Sources : fiche ID Innovations ID-2/12/20 LA, sections 4 et 6 ;
 https://gpiozero.readthedocs.io/en/stable/api_input.html
 https://gpiozero.readthedocs.io/en/stable/api_pins.html
 https://pyserial.readthedocs.io/en/latest/pyserial_api.html
-
-Le delai de 500 ms est notre choix d'essai, pas une exigence du lecteur.
 """
 
 import argparse
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from math import ceil, isfinite
-from pathlib import Path
 from queue import Empty, SimpleQueue
 import re
 import sys
@@ -137,132 +139,189 @@ class Reception:
         return resultats
 
 
-def trouver_rp1(racine=Path("/dev"), api=None):
-    """Identifier RP1 via l'API gpiochip, sans dependre des attributs sysfs."""
-    if api is None:
-        import lgpio as api
+@dataclass(frozen=True)
+class EvenementRFID:
+    """INFO, PRESENCE, RETRAIT, ACCEPTE, IGNORE ou INVALIDE."""
 
-    correspondances = []
-    diagnostics = []
-    for chemin in sorted(racine.glob("gpiochip*")):
-        suffixe = chemin.name.removeprefix("gpiochip")
-        if not suffixe.isdecimal():
-            continue
-        numero = int(suffixe)
-        handle = None
-        try:
-            handle = api.gpiochip_open(numero)
-            if handle < 0:
-                raise RuntimeError(f"ouverture impossible (code {handle})")
-            infos = api.gpio_get_chip_info(handle)
-            # Le nom Linux et le libelle fonctionnel sont les deux derniers
-            # champs ; les champs numeriques precedents varient selon l'API.
-            nom, etiquette = infos[-2:]
-            if isinstance(etiquette, bytes):
-                etiquette = etiquette.decode("utf-8", errors="replace")
-            diagnostics.append(f"{chemin.name} : {nom!r}, {etiquette!r}")
-            if "rp1" in str(etiquette).lower():
-                correspondances.append(numero)
-        except Exception as erreur:
-            diagnostics.append(f"{chemin.name} : {type(erreur).__name__}: {erreur}")
-        finally:
-            if handle is not None and handle >= 0:
-                api.gpiochip_close(handle)
-    if len(correspondances) != 1:
-        raise RuntimeError(
-            "Controleur GPIO RP1 non identifie de facon unique. "
-            "Informations lues : " + (" ; ".join(diagnostics) or "aucun /dev/gpiochip*")
-        )
-    return correspondances[0]
+    type: str
+    message: str
+    identifiant: str | None = None
+    brut: bytes = b""
+
+    def __str__(self):
+        if self.type in ("INFO", "PRESENCE", "RETRAIT"):
+            return self.message
+        if self.identifiant is not None:
+            return f"{self.type} | ID={self.identifiant} | {self.message}"
+        detail = f" | {self.brut.hex(' ')}" if self.brut else ""
+        return f"{self.type} : {self.message}{detail}"
 
 
-def executer(args):
-    # Imports tardifs : les fonctions de validation peuvent etre testees sans Pi.
-    import serial
-    from gpiozero import DigitalInputDevice
-    from gpiozero.pins.lgpio import LGPIOFactory
+class LecteurRFID:
+    """Acquisition appelee depuis une seule boucle applicative.
 
-    origine = time.monotonic()
+    Construire l'objet n'ouvre pas le materiel. Utiliser ``with`` ou appeler
+    ouvrir(), puis lire() regulierement et fermer() en fin d'utilisation.
+    Les callbacks GPIO deposent uniquement les fronts dans une file.
+    """
 
-    def afficher(message):
-        print(f"[{time.monotonic() - origine:8.3f} s] {message}", flush=True)
+    def __init__(self, port="/dev/ttyAMA0", gpio=17, chip=0, delai_ms=500):
+        if not isfinite(delai_ms) or delai_ms < 0:
+            raise ValueError("delai_ms doit etre un nombre positif ou nul")
+        if not isinstance(chip, int) or chip < 0:
+            raise ValueError("chip doit etre un entier positif ou nul")
+        if not isinstance(gpio, int) or gpio < 0:
+            raise ValueError("gpio doit etre un numero BCM positif ou nul")
+        self.port = port
+        self.gpio = gpio
+        self.chip = chip
+        self.delai_ms = delai_ms
+        self._ressources = None
+        self._uart = None
+        self._rng = None
 
-    transitions = SimpleQueue()
-    regle = Rearmement(args.delai_ms / 1000)
-    reception = Reception()
-    chip = args.chip if args.chip is not None else trouver_rp1()
+    def ouvrir(self):
+        if self._ressources is not None:
+            return self
 
-    with ExitStack() as ressources:
-        fabrique = LGPIOFactory(chip=chip)
-        ressources.callback(fabrique.close)
-        rng = DigitalInputDevice(
-            args.gpio, pull_up=None, active_state=True,
-            bounce_time=None, pin_factory=fabrique,
-        )
-        ressources.callback(rng.close)
-        uart = serial.Serial(
-            args.port, baudrate=9600, bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
-            timeout=0, xonxoff=False, rtscts=False, dsrdtr=False,
-            exclusive=True,
-        )
-        ressources.callback(uart.close)
-        uart.reset_input_buffer()
+        # Imports tardifs : importation du module et tests possibles sur PC.
+        import serial
+        from gpiozero import DigitalInputDevice
+        from gpiozero.pins.lgpio import LGPIOFactory
 
-        # Les callbacks ne font qu'enregistrer les fronts. Le traitement est
-        # effectue dans la boucle principale, sans acces concurrent aux etats.
-        rng.when_activated = lambda: transitions.put((True, time.monotonic()))
-        rng.when_deactivated = lambda: transitions.put((False, time.monotonic()))
-        initial = rng.is_active
-        regle.presence(initial, time.monotonic())
-        afficher(f"{args.port} : 9600 8N1 | RNG=GPIO{args.gpio} | gpiochip{chip}")
-        afficher(f"Delai du meme badge : {args.delai_ms:g} ms apres retrait")
-        afficher("ACCEPTE = lecture valide, pas une autorisation de compte.")
-        if initial:
-            afficher("Un badge est deja present : retirez-le puis representez-le.")
-        else:
-            afficher("Presentez un badge. Ctrl+C pour terminer.")
+        transitions = SimpleQueue()
+        self._transitions = transitions
+        self._regle = Rearmement(self.delai_ms / 1000)
+        self._reception = Reception()
+        self._evenements = []
 
+        # Toute ouverture partielle est liberee si une etape echoue.
+        with ExitStack() as ressources:
+            fabrique = LGPIOFactory(chip=self.chip)
+            ressources.callback(fabrique.close)
+            rng = DigitalInputDevice(
+                self.gpio, pull_up=None, active_state=True,
+                bounce_time=None, pin_factory=fabrique,
+            )
+            ressources.callback(rng.close)
+            uart = serial.Serial(
+                self.port, baudrate=9600, bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
+                timeout=0, xonxoff=False, rtscts=False, dsrdtr=False,
+                exclusive=True,
+            )
+            ressources.callback(uart.close)
+            uart.reset_input_buffer()
+
+            rng.when_activated = lambda: transitions.put((True, time.monotonic()))
+            rng.when_deactivated = lambda: transitions.put((False, time.monotonic()))
+            initial = rng.is_active
+            self._regle.presence(initial, time.monotonic())
+            # Le test demandait deja un retrait au demarrage. Le module
+            # l'impose aussi si des octets arrivent pendant ce demarrage.
+            self._presentation_initiale = self._regle.presentation if initial else None
+            self._evenements = [
+                EvenementRFID("INFO", f"{self.port} : 9600 8N1 | RNG=GPIO{self.gpio} | gpiochip{self.chip}"),
+                EvenementRFID("INFO", f"Delai du meme badge : {self.delai_ms:g} ms apres retrait"),
+                EvenementRFID("INFO", "ACCEPTE = lecture valide, pas une autorisation de compte."),
+                EvenementRFID("INFO", "Un badge est deja present : retirez-le puis representez-le."
+                              if initial else "Presentez un badge. Ctrl+C pour terminer."),
+            ]
+            self._uart = uart
+            self._rng = rng
+            self._ressources = ressources.pop_all()
+        return self
+
+    def lire(self):
+        """Retourne les evenements disponibles ; aucune attente de 500 ms.
+
+        Lire au plus 256 octets par passage. Le programme appelant doit
+        revenir regulierement (toutes les 2 ms dans main.py) et eviter de
+        bloquer sa boucle pendant les futurs traitements CAN/MQTT/ecran.
+        """
+        if self._ressources is None:
+            raise RuntimeError("Lecteur RFID non ouvert")
+
+        evenements, self._evenements = self._evenements, []
         while True:
-            while True:
-                try:
-                    presente, instant = transitions.get_nowait()
-                except Empty:
-                    break
-                message = regle.presence(presente, instant)
-                if message:
-                    afficher(message)
+            try:
+                presente, instant = self._transitions.get_nowait()
+            except Empty:
+                break
+            message = self._regle.presence(presente, instant)
+            if message:
+                evenements.append(EvenementRFID("PRESENCE" if presente else "RETRAIT", message))
 
-            # Taille bornee, lecture non bloquante et horloge monotone :
-            # les 500 ms n'immobilisent jamais le programme.
-            donnees = uart.read(min(uart.in_waiting, 256))
-            maintenant = time.monotonic()
-            for evenement in reception.recevoir(donnees, maintenant, regle.presentation):
-                if evenement[0] == "erreur":
-                    afficher(f"INVALIDE : {evenement[1]} | {evenement[2].hex(' ')}")
-                    continue
-                _, trame, debut, presentation = evenement
-                try:
-                    identifiant = verifier_trame(trame)
-                except ValueError as erreur:
-                    afficher(f"INVALIDE : {erreur} | {trame.hex(' ')}")
-                    continue
-                decision, raison = regle.decider(identifiant, presentation, debut)
-                afficher(f"{decision} | ID={identifiant} | {raison}")
-            time.sleep(0.002)
+        donnees = self._uart.read(min(self._uart.in_waiting, 256))
+        maintenant = time.monotonic()
+        presentation = self._regle.presentation
+        for resultat in self._reception.recevoir(donnees, maintenant, presentation):
+            if resultat[0] == "erreur":
+                evenements.append(EvenementRFID("INVALIDE", resultat[1], brut=resultat[2]))
+                continue
+            _, trame, debut, presentation = resultat
+            try:
+                identifiant = verifier_trame(trame)
+            except ValueError as erreur:
+                evenements.append(EvenementRFID("INVALIDE", str(erreur), brut=trame))
+                continue
+            if presentation is not None and presentation is self._presentation_initiale:
+                evenements.append(EvenementRFID(
+                    "IGNORE", "badge deja present au demarrage ; retirer puis representer", identifiant,
+                ))
+                continue
+            decision, raison = self._regle.decider(identifiant, presentation, debut)
+            evenements.append(EvenementRFID(decision, raison, identifiant))
+        return evenements
+
+    def fermer(self):
+        ressources, self._ressources = self._ressources, None
+        try:
+            if ressources is not None:
+                ressources.close()
+        finally:
+            self._uart = None
+            self._rng = None
+
+    def __enter__(self):
+        return self.ouvrir()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.fermer()
+        return False
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def lire_arguments(argv=None, description=None):
+    """Options communes au programme principal et au test direct."""
+    parser = argparse.ArgumentParser(description=description or __doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", default="/dev/ttyAMA0", help="port UART (defaut : /dev/ttyAMA0)")
     parser.add_argument("--gpio", type=int, default=17, help="numero BCM de RNG (defaut : 17)")
     parser.add_argument("--delai-ms", type=float, default=500, help="delai apres retrait pour le meme ID")
-    parser.add_argument("--chip", type=int, help="numero gpiochip ; detection automatique RP1 sinon")
-    args = parser.parse_args()
+    parser.add_argument("--chip", type=int, default=0, help="numero gpiochip (defaut : 0, identifie sur ce CM5)")
+    args = parser.parse_args(argv)
     if not isfinite(args.delai_ms) or args.delai_ms < 0:
         parser.error("--delai-ms doit etre un nombre positif ou nul")
-    if args.chip is not None and args.chip < 0:
+    if args.chip < 0:
         parser.error("--chip doit etre positif ou nul")
+    if args.gpio < 0:
+        parser.error("--gpio doit etre positif ou nul")
+    return args
+
+
+def executer(args):
+    """Boucle du test direct ; main.py utilise LecteurRFID.lire()."""
+    origine = time.monotonic()
+    with LecteurRFID(port=args.port, gpio=args.gpio, chip=args.chip,
+                     delai_ms=args.delai_ms) as lecteur:
+        while True:
+            for evenement in lecteur.lire():
+                print(f"[{time.monotonic() - origine:8.3f} s] {evenement}", flush=True)
+            time.sleep(0.002)
+
+
+def main(argv=None):
+    args = lire_arguments(argv)
     try:
         executer(args)
     except KeyboardInterrupt:
