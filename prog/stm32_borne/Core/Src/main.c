@@ -19,9 +19,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "usb_host.h"
-#include <stdio.h>      /* snprintf */
+#include <stdio.h>
+#include <string.h>
 #include "escpos.h"
 #include "impression.h"
+#include "can_borne.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -77,6 +79,17 @@ void MX_USB_HOST_Process(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* Envoie un message texte vers la console de débogage (USART2 → PuTTY).
+ * Si un billet est en cours d'envoi sur USART2 (essais sans imprimante),
+ * on attend la fin de l'envoi (max 500 ms) pour ne pas perdre le message. */
+static void debug(const char *texte)
+{
+    uint32_t t0 = HAL_GetTick();
+    while (huart2.gState != HAL_UART_STATE_READY && (HAL_GetTick() - t0) < 500u)
+    {
+    }
+    HAL_UART_Transmit(&huart2, (const uint8_t *)texte, strlen(texte), 100);
+}
 /* USER CODE END 0 */
 
 /**
@@ -116,40 +129,18 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  Impression_Init();
+  /* Démarrage du service CAN (mode loopback pour les essais sans RPi) */
+  if (CanBorne_Init(&hcan1))
+  {
+      debug("\r\nCAN pret (loopback). Appuyer sur le bouton bleu.\r\n");
+  }
+  else
+  {
+      debug("\r\nERREUR : initialisation CAN\r\n");
+  }
 
-  /* --- Etapa 2 : datos escritos a mano (en la etapa 4 llegarán por CAN) --- */
-  /* --- Etapa 2 : datos escritos a mano (en la etapa 4 llegarán por CAN) --- */
-    DonneesBillet donnees = {
-        .transaction = 7,
-        .place       = 14,
-        .annee = 26, .mois = 11, .jour = 19,
-        .heure = 9, .minute = 45, .seconde = 7
-    };
 
-    static uint8_t memoire[256];
-    EscPosTampon billet;
-    EscPos_Init(&billet, memoire, sizeof(memoire));
-
-    bool ok = Impression_ComposerBillet(&donnees, &billet);
-
-    /* Informe en PuTTY */
-    char texte[80];
-    int n = snprintf(texte, sizeof(texte), "Billet : %u octets, ok = %u\r\n",
-                     billet.taille, ok);
-    HAL_UART_Transmit(&huart2, (uint8_t *)texte, n, 100);
-
-    if (ok)
-    {
-        const char debut[] = "--- DEBUT BILLET ---\r\n";
-        const char fin[]   = "\r\n--- FIN BILLET ---\r\n";
-
-        HAL_UART_Transmit(&huart2, (uint8_t *)debut, sizeof(debut) - 1, 100);
-        HAL_UART_Transmit(&huart2, memoire, billet.taille, 1000);   /* prueba: a PuTTY */
-        HAL_UART_Transmit(&huart2, (uint8_t *)fin, sizeof(fin) - 1, 100);
-    }
-
-  /* USER CODE END 2 */
-  
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -160,6 +151,116 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
+
+    /* 1) Bouton bleu : chaque appui simule le RPi avec un scénario de test */
+        static GPIO_PinState bouton_avant = GPIO_PIN_RESET;
+        static uint8_t scenario = 0;
+        static uint8_t sequence = 0;
+        static uint8_t derniere_cmd[8];    /* paire du scénario 1, pour la répétition */
+        static uint8_t derniere_date[7];
+        static bool paire2_a_envoyer = false;   /* scénario 7 : 2e demande différée */
+
+        GPIO_PinState bouton = HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin);
+        if (bouton == GPIO_PIN_SET && bouton_avant == GPIO_PIN_RESET)   /* front montant */
+        {
+            sequence++;   /* nouvelle séquence à chaque demande, comme le ferait le RPi */
+
+            /* Transaction 123456 (40 E2 01 00), place 12 = E2.5 ; 2026-11-19 13:45:07 */
+            uint8_t cmd[8]  = { sequence, 0x01, 0x40, 0xE2, 0x01, 0x00, 12, 0x00 };
+            uint8_t date[7] = { sequence, 26, 11, 19, 13, 45, 7 };
+
+            switch (scenario)
+            {
+                case 0:
+                    debug("\r\n=== Scenario 1 : paire valide ===\r\n");
+                    memcpy(derniere_cmd, cmd, 8);
+                    memcpy(derniere_date, date, 7);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date, 7);
+                    break;
+                case 1:
+                    debug("\r\n=== Scenario 2 : repetition du scenario 1 (pas de 2e billet) ===\r\n");
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, derniere_cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, derniere_date, 7);
+                    break;
+                case 2:
+                    debug("\r\n=== Scenario 3 : 0x361 manquante ===\r\n");
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    break;
+                case 3:
+                    debug("\r\n=== Scenario 4 : sequences differentes ===\r\n");
+                    date[0] = (uint8_t)(sequence + 100u);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date, 7);
+                    break;
+                case 4:
+                    debug("\r\n=== Scenario 5 : place invalide (15) ===\r\n");
+                    cmd[6] = 15;
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date, 7);
+                    break;
+                case 5:
+                    debug("\r\n=== Scenario 6 : date invalide (30 fevrier) ===\r\n");
+                    date[2] = 2;
+                    date[3] = 30;
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date, 7);
+                    break;
+                case 6:
+                    debug("\r\n=== Scenario 7 : imprimante occupee ===\r\n");
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date, 7);
+                    paire2_a_envoyer = true;   /* envoyée dès que l'impression a commencé */
+                    break;
+                default:
+                    debug("\r\n=== Scenario 8 : repetition pendant l'envoi ===\r\n");
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date, 7);
+                    CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd, 8);   /* répétée */
+                    break;
+            }
+            scenario = (uint8_t)((scenario + 1u) % 8u);
+        }
+        bouton_avant = bouton;
+    /* 2) Lecture des trames reçues et répartition vers les modules */
+    TrameCan trame;
+    while (CanBorne_Recevoir(&trame))
+    {
+        /* Affichage de la trame en hexadécimal dans PuTTY */
+        char texte[80];
+        int n = snprintf(texte, sizeof(texte), "Recu ID 0x%03X DLC %u :",
+                         trame.id, trame.dlc);
+        for (uint8_t i = 0; i < trame.dlc; i++)
+        {
+            n += snprintf(&texte[n], sizeof(texte) - n, " %02X", trame.data[i]);
+        }
+        snprintf(&texte[n], sizeof(texte) - n, "\r\n");
+        debug(texte);
+
+        if (trame.id == CAN_ID_IMPRESSION_CMD)
+        {
+            Impression_TraiterCommandeCAN(trame.data, trame.dlc);
+        }
+        else if (trame.id == CAN_ID_IMPRESSION_DATE)
+        {
+            Impression_TraiterDateCAN(trame.data, trame.dlc);
+        }
+        /* 0x230 : notre propre réponse, reçue grâce au loopback (affichage seulement) */
+    }
+
+    /* 3) Délai d'appariement de T05 */
+    Impression_Task();
+    /* Scénario 7 : 2e demande envoyée PENDANT l'impression de la 1re */
+    if (paire2_a_envoyer && Impression_EstOccupee())
+    {
+        paire2_a_envoyer = false;
+        sequence++;
+        /* Transaction 123457 (41 E2 01 00), place 3 */
+        uint8_t cmd2[8]  = { sequence, 0x01, 0x41, 0xE2, 0x01, 0x00, 3, 0x00 };
+        uint8_t date2[7] = { sequence, 26, 11, 19, 13, 45, 8 };
+        CanBorne_Envoyer(CAN_ID_IMPRESSION_CMD, cmd2, 8);
+        CanBorne_Envoyer(CAN_ID_IMPRESSION_DATE, date2, 7);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -226,7 +327,7 @@ static void MX_CAN1_Init(void)
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
   hcan1.Init.Prescaler = 6;
-  hcan1.Init.Mode = CAN_MODE_NORMAL;
+  hcan1.Init.Mode = CAN_MODE_LOOPBACK;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
   hcan1.Init.TimeSeg1 = CAN_BS1_11TQ;
   hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
