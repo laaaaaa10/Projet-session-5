@@ -20,9 +20,8 @@
 #define INDUCTIVE_PIN_3          7U
 
 /* Niveau lu quand la cible métallique est détectée.
- * Sortie NC : cible présente = transistor bloqué = la résistance de rappel (3,3 V) tire l'entrée à 1.
- * Pas de cible = transistor conducteur = entrée à 0. */
-#define INDUCTIVE_ACTIVE_LEVEL   1U
+ * Mesuré sur le banc : cible présente = 0, pas de cible = 1. */
+#define INDUCTIVE_ACTIVE_LEVEL   0U
 
 typedef struct
 {
