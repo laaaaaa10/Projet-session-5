@@ -7,6 +7,7 @@
  #define ESC 0x1Bu
  #define LF  0x0Au
  #define GS  0x1Du
+#define CODE128_PREFIXE_JEU_B    0
 
  /* Agrega n bytes al búfer, o marca desbordamiento sin escribir nada parcial */
  static void ajouter_octets(EscPosTampon *t, const uint8_t *src, uint16_t n)
@@ -82,9 +83,15 @@
     ajouter_octets(t, ancho, 3u);
     ajouter_octets(t, hri, 3u);
 
-    /* GS k 73 n  '{' 'B'  datos... */
+#if CODE128_PREFIXE_JEU_B
+    /* GS k 73 n  '{' 'B'  données... */
     const uint8_t entete[6] = { GS, 'k', 73u, (uint8_t)(n + 2u), '{', 'B' };
     ajouter_octets(t, entete, 6u);
+#else
+    /* GS k 73 n  données... (l'imprimante choisit le jeu automatiquement) */
+    const uint8_t entete[4] = { GS, 'k', 73u, (uint8_t)n };
+    ajouter_octets(t, entete, 4u);
+#endif
     ajouter_octets(t, (const uint8_t *)donnees, n);
 
     const uint8_t lf = LF;

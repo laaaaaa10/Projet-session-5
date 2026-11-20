@@ -24,12 +24,12 @@
 #define DELAI_UART_MS            3000u    /* envoi d'un billet : ~200 ms normal */
 #define DELAI_DOUBLON_MS         10000u   /* fenêtre de détection des répétitions */
 #define NB_HISTORIQUE            4u       /* demandes terminées mémorisées      */
-
+#define TEXTE_TARIF              "Tarif : 0,10 $ / minute"
 /* UART de sortie du billet :
  *   huart3 = imprimante (PD8/PB11)
  *   huart2 = PuTTY, pour les essais sans imprimante
  * L'interruption globale de cet USART doit être activée dans CubeMX (NVIC). */
-#define UART_BILLET              huart2
+#define UART_BILLET              huart3
 extern UART_HandleTypeDef UART_BILLET;
 
 /* ========================================================================= */
@@ -466,6 +466,7 @@ bool Impression_ComposerBillet(const DonneesBillet *d, EscPosTampon *t)
     EscPos_Ligne(t, ligne);
     snprintf(ligne, sizeof(ligne), "Place : E%u.%u", etage, rang);
     EscPos_Ligne(t, ligne);
+    EscPos_Ligne(t, TEXTE_TARIF);
     EscPos_Ligne(t, "--------------------------------");
 
     /* Numéro et code-barres */
