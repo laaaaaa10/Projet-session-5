@@ -6,6 +6,7 @@ import time
 
 from api.paiements import ModuleT04
 from api.identification import ModuleT03
+from api.comptes import ModuleT13
 from application.acces_identification import AccesIdentification
 from modeles.comptes import (
     ConflitTransaction, DemandePaiement, PaiementEnCours, ResultatOperation,
@@ -104,10 +105,11 @@ class Borne:
             self._publier(resultat)
 
     def executer(self, lecteur, *, un_paiement=False,
-                 t03: ModuleT03 | None = None, t04: ModuleT04 | None = None):
+                 t03: ModuleT03 | None = None, t04: ModuleT04 | None = None,
+                 t13: ModuleT13 | None = None):
         """Une seule boucle RFID ; les modules branches recoivent leur traitement."""
-        if un_paiement and (t03 is not None or t04 is not None):
-            raise ValueError("Le test d'un paiement se lance sans les modules T03 et T04")
+        if un_paiement and any(module is not None for module in (t03, t04, t13)):
+            raise ValueError("Le test d'un paiement se lance sans les modules T03, T04 et T13")
         while True:
             if un_paiement and self._resultats:
                 return
@@ -119,4 +121,6 @@ class Borne:
                 t03.actualiser()
             if t04 is not None:
                 t04.actualiser()
+            if t13 is not None:
+                t13.actualiser()
             time.sleep(0.002)

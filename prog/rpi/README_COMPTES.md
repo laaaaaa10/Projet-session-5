@@ -25,6 +25,9 @@ La création de comptes par interface reste hors de cette version.
 | `api/identification.py` | Contrat de lecture des cartes et de consultation des soldes pour T03 |
 | `application/acces_identification.py` | Accès en lecture seule fourni à T03 |
 | `application/integration_t03.py` | Point de branchement du module du responsable T03 |
+| `api/comptes.py` | Contrat de consultation/crédit fourni à T13 |
+| `application/acces_comptes.py` | Accès T13 au service, avec le même journal et les mêmes soldes |
+| `application/integration_t13.py` | Point de branchement du futur module T13 |
 | `modeles/comptes.py` | Compte, demande, résultat, statuts et validation des paramètres |
 | `modules/gestion_comptes.py` | Consultation, crédit, débit intégral et détection des doublons |
 | `stockage/comptes_csv.py` | Lecture/écriture CSV, verrou et récupération des soldes |
@@ -34,6 +37,8 @@ La création de comptes par interface reste hors de cette version.
 | `outils/comptes.py` | Consultation et crédit depuis le terminal |
 | `exemples/client_t04.py` | Exemple de client utilisant seulement l'API publique |
 | `outils/demo_interface_t04.py` | Démonstration sur PC Linux, dans des données temporaires |
+| `outils/demo_interface_t13.py` | Démonstration de crédit répété et de consultation pour T13 |
+| `outils/demo_recuperation_comptes.py` | Démonstration d'un CSV de soldes récupéré depuis le journal |
 
 Le lecteur RFID ne connaît ni les comptes ni les tarifs. Le service de comptes
 ne connaît ni GPIO, ni UART, ni l'écran. Les modules métier n'affichent rien.
@@ -45,6 +50,9 @@ Le code réel de T04 n'est pas présent dans cette branche. Le point de branchem
 est prêt dans `application/integration_t04.py` ; il suffit d'y retourner le futur
 module, qui reçoit l'API de paiement et fournit `actualiser()`.
 Aucun protocole CAN/MQTT de paiement n'est inventé ici.
+L'accès consultation/crédit de T13 est décrit dans
+[INTERFACE_T13_T02.md](INTERFACE_T13_T02.md). Sa fabrique retourne `None`
+jusqu'au branchement du vrai module de supervision.
 
 ## Données persistantes
 
@@ -92,6 +100,11 @@ Les CSV sont validés sous un verrou Linux `flock`. Chaque fichier est écrit
 dans un temporaire du même dossier, synchronisé, puis remplacé. Le journal est
 enregistré avant le fichier des soldes. Si l'exécution s'interrompt entre les deux,
 la prochaine lecture récupère le solde du journal avant une nouvelle opération.
+**Les deux CSV ne constituent pas une transaction atomique globale.**
+Après une récupération réussie, un avertissement technique
+`STOCKAGE | RECUPERATION CSV` indique l'ID UART, l'ancien solde, le solde restauré
+et le fichier concerné. Sans configuration de journalisation particulière,
+cet avertissement apparaît sur la sortie d'erreur du terminal.
 Un journal manquant à côté de comptes existants, ou des données incohérentes,
 arrête le traitement au lieu de créer silencieusement un historique vide.
 
@@ -131,12 +144,27 @@ La suite `test_interface_t03.py` vérifie notamment la séparation des lectures
 d'identification et des cartes de paiement, avec un seul lecteur dans le vrai
 programme principal et les périphériques simulés.
 
+L'accès T13 et le signalement de récupération ont leurs démos, toujours dans
+des fichiers temporaires sans MQTT ni lecteur :
+
+```bash
+python3 -B prog/rpi/outils/demo_interface_t13.py
+python3 -B prog/rpi/outils/demo_recuperation_comptes.py
+```
+
+La suite `test_interface_t13.py` vérifie les crédits répétés, les conflits,
+la reprise après erreur de fichier et les soldes partagés avec T03/T04.
+
 Couverture : les trois cartes, absence de débit à la simple lecture, paiements
 et crédits, solde insuffisant, doublons après redémarrage, conflits d'identifiants,
 accès concurrents, erreurs avant/après confirmation du journal et parcours
 complet du simulateur avec les trames RFID réelles.
 
 ## Essais sur le Pi
+
+Le parcours complet, avec les résultats attendus et un dossier d'essai séparé,
+est dans [VALIDATION_T02.md](VALIDATION_T02.md). Il couvre le crédit répété,
+le refus suivi d'une autre carte, la persistance et l'observation du buzzer.
 
 Après le push sur le PC, arrêter le programme du Pi avec **Ctrl+C**, puis :
 

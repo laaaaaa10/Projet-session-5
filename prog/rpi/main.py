@@ -10,7 +10,8 @@ import sys
 
 from application.borne import Borne
 from application.acces_identification import AccesIdentification
-from application import integration_t03, integration_t04
+from application.acces_comptes import AccesComptes
+from application import integration_t03, integration_t04, integration_t13
 from interface.console_borne import ConsoleBorne
 from modules.gestion_comptes import ServiceComptes
 from modules import lecteur_nfc_rfid
@@ -29,10 +30,11 @@ def main(argv=None, *, dossier_donnees=DOSSIER_ACTIF):
             comptes, console, identification=identification if t03 is not None else None,
         )
         t04 = integration_t04.creer_module_t04(borne)
+        t13 = integration_t13.creer_module_t13(AccesComptes(comptes))
         with lecteur_nfc_rfid.LecteurRFID(
             port=args.port, gpio=args.gpio, chip=args.chip, delai_ms=args.delai_ms,
         ) as lecteur:
-            borne.executer(lecteur, t03=t03, t04=t04)
+            borne.executer(lecteur, t03=t03, t04=t04, t13=t13)
     except KeyboardInterrupt:
         print("\nProgramme termine.")
         return 0

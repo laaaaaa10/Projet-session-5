@@ -10,6 +10,7 @@ import csv
 from dataclasses import replace
 from datetime import datetime, timezone
 import fcntl
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -23,6 +24,7 @@ from modeles.comptes import (
 RACINE_DONNEES = Path(__file__).resolve().parents[1] / "donnees"
 CHEMIN_MODELE = RACINE_DONNEES / "comptes.csv"
 DOSSIER_ACTIF = RACINE_DONNEES / "actives"
+JOURNAL_TECHNIQUE = logging.getLogger(__name__)
 CHAMPS_COMPTES = ["id_uart", "nom", "solde_centimes"]
 CHAMPS_OPERATIONS = [
     "id_transaction", "date_utc", "type_operation", "id_uart", "montant_centimes",
@@ -190,13 +192,21 @@ class DepotComptesCSV:
                         operations, soldes = _charger_operations(self.journal, comptes)
                     except ValueError as erreur:
                         raise ErreurStockage(f"{self.dossier} : donnees invalides : {erreur}") from erreur
-                    corriger = False
+                    corrections = []
                     for id_uart, solde in soldes.items():
                         if comptes[id_uart].solde_centimes != solde:
+                            corrections.append((id_uart, comptes[id_uart].solde_centimes, solde))
                             comptes[id_uart] = replace(comptes[id_uart], solde_centimes=solde)
-                            corriger = True
-                    if corriger:
+                    if corrections:
                         _ecrire_comptes(self.comptes, comptes)
+                        # Annoncer la recuperation seulement apres l'ecriture reussie.
+                        for id_uart, ancien_solde, solde in corrections:
+                            JOURNAL_TECHNIQUE.warning(
+                                "STOCKAGE | RECUPERATION CSV | ID UART : %s"
+                                " | Solde CSV : %d -> %d centimes"
+                                " | Reference : operations.csv | Fichier : %s",
+                                id_uart, ancien_solde, solde, self.comptes,
+                            )
                     yield TransactionCSV(self, comptes, operations)
                 finally:
                     fcntl.flock(verrou, fcntl.LOCK_UN)

@@ -210,10 +210,52 @@ class TestsStockage(BancComptes):
             with self.assertRaisesRegex(stockage.ErreurStockage, "MEME ID"):
                 self.service.payer("p", JASON, 500)
         self.assertEqual(stockage.charger_comptes(self.dossier / "comptes.csv")[JASON].solde_centimes, 2000)
-        resultat = self.nouveau_service().payer("p", JASON, 500)
+        with self.assertLogs(stockage.JOURNAL_TECHNIQUE, level="WARNING") as messages:
+            resultat = self.nouveau_service().payer("p", JASON, 500)
         self.assertTrue(resultat.deja_traitee)
-        self.assertEqual(self.solde(), 1500)
+        self.assertEqual(len(messages.output), 1)
+        self.assertIn("RECUPERATION CSV", messages.output[0])
+        self.assertIn(JASON, messages.output[0])
+        self.assertIn("2000 -> 1500 centimes", messages.output[0])
+        self.assertIn(str(self.dossier / "comptes.csv"), messages.output[0])
+        with self.assertNoLogs(stockage.JOURNAL_TECHNIQUE, level="WARNING"):
+            self.assertEqual(self.solde(), 1500)
         self.assertEqual(len(self.lignes_journal()), 1)
+
+    def test_reparation_echouee_ne_signale_pas_une_recuperation_reussie(self):
+        with patch.object(stockage, "_ecrire_comptes", side_effect=OSError("disque indisponible")):
+            with self.assertRaises(stockage.ErreurStockage):
+                self.service.payer("p", JASON, 500)
+            with self.assertNoLogs(stockage.JOURNAL_TECHNIQUE, level="WARNING"):
+                with self.assertRaises(stockage.ErreurStockage):
+                    self.nouveau_service().consulter_compte(JASON)
+        self.assertEqual(stockage.charger_comptes(self.dossier / "comptes.csv")[JASON].solde_centimes, 2000)
+        with self.assertLogs(stockage.JOURNAL_TECHNIQUE, level="WARNING"):
+            self.assertEqual(self.solde(), 1500)
+        self.assertEqual(len(self.lignes_journal()), 1)
+
+    def test_donnees_saines_ne_declenchent_pas_de_message_recuperation(self):
+        with self.assertNoLogs(stockage.JOURNAL_TECHNIQUE, level="WARNING"):
+            self.nouveau_service().lister_comptes()
+            self.service.crediter("c", JASON, 500)
+            self.nouveau_service().payer("p", JASON, 1000)
+            self.assertEqual(self.solde(), 1500)
+
+    def test_demo_recuperation_signale_le_solde_repare_sans_double_debit(self):
+        code = (
+            "import runpy, sys\n"
+            "sys.modules.update(serial=None, gpiozero=None, lgpio=None)\n"
+            "runpy.run_path(sys.argv[1], run_name='__main__')\n"
+        )
+        resultat = subprocess.run(
+            [sys.executable, "-B", "-c", code, str(RPI / "outils/demo_recuperation_comptes.py")],
+            cwd=self.racine, capture_output=True, text=True,
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+        self.assertEqual(resultat.stderr.count("RECUPERATION CSV"), 1)
+        self.assertIn("2000 -> 1500 centimes", resultat.stderr)
+        self.assertIn("Reprise : deja_traitee=True", resultat.stdout)
+        self.assertIn("Solde final : 1500 centimes", resultat.stdout)
 
     def test_incident_apres_rename_journal_retrouve_le_resultat(self):
         ecrire = stockage._ecrire_csv_atomique
