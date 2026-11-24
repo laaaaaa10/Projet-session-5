@@ -8,7 +8,6 @@
  * IMPRESSION_ETAT (0x230). Protocole CAN ESA v1.6, section 9.
  *
  * Projet ESA - 243-557 - Automne 2026
- * Auteur : Edwin (T05)
  */
 #ifndef IMPRESSION_H
 #define IMPRESSION_H

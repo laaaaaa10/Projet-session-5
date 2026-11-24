@@ -1,13 +1,17 @@
-/*
- * logo_esa.h
+/**
+ * @file    logo_esa.h
+ * @brief   T05 - Logo du billet (bitmap 1 bit, généré par image_vers_c.py).
  *
- *  Created on: 20 nov. 2026
- *      Author: edwin
+ * Projet ESA - 243-557 - Automne 2026
  */
+#ifndef LOGO_ESA_H
+#define LOGO_ESA_H
 
-#ifndef INC_LOGO_ESA_H_
-#define INC_LOGO_ESA_H_
+#include <stdint.h>
 
+#define LOGO_ESA_LARGEUR_OCTETS  24u   /* 192 points */
+#define LOGO_ESA_HAUTEUR         64u   /* lignes de points */
 
+extern const uint8_t LOGO_ESA[LOGO_ESA_LARGEUR_OCTETS * LOGO_ESA_HAUTEUR];
 
-#endif /* INC_LOGO_ESA_H_ */
+#endif /* LOGO_ESA_H */

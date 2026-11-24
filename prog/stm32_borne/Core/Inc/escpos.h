@@ -24,6 +24,8 @@
  void EscPos_Avancer(EscPosTampon *t, uint8_t lignes);      /* ESC d n */
  void EscPos_Code128(EscPosTampon *t, const char *donnees,
                     uint8_t hauteur, uint8_t largeur);     /* GS k    */
-                    
+
+ void EscPos_Image(EscPosTampon *t, const uint8_t *bitmap,
+                   uint16_t largeur_octets, uint16_t hauteur);
  #endif /* ESCPOS_H */
  
