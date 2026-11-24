@@ -30,7 +30,7 @@
  *   huart3 = imprimante (PD8/PB11)
  *   huart2 = PuTTY, pour les essais sans imprimante
  * L'interruption globale de cet USART doit être activée dans CubeMX (NVIC). */
-#define UART_BILLET              huart3
+#define UART_BILLET              huart2
 extern UART_HandleTypeDef UART_BILLET;
 
 /* ========================================================================= */
@@ -450,7 +450,7 @@ bool Impression_ComposerBillet(const DonneesBillet *d, EscPosTampon *t)
     /* En-tête : logo centré */
     EscPos_Alignement(t, 1);
     EscPos_Image(t, LOGO_ESA, LOGO_ESA_LARGEUR_OCTETS, LOGO_ESA_HAUTEUR);
-    EscPos_Ligne(t, "Eco Stationnement Automatise");
+    EscPos_Ligne(t, "Eco Stationnement Automatisé");
     EscPos_Ligne(t, "Cegep Limoilou");
     EscPos_Ligne(t, "--------------------------------");
 
@@ -469,7 +469,7 @@ bool Impression_ComposerBillet(const DonneesBillet *d, EscPosTampon *t)
 
     /* Numéro et code-barres */
     EscPos_Alignement(t, 1);
-    EscPos_Ligne(t, "No de transaction");
+    EscPos_Ligne(t, "No. de transaction");
     EscPos_Code128(t, numero, 80, 3);
     EscPos_Avancer(t, 4);
 
