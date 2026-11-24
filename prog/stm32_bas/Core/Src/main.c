@@ -24,11 +24,17 @@
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
+#include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "console.h"     /* console USB (micro-USB) + USART2 */
+#include "esa_can.h"     /* service CAN */
+#include "noeud.h"       /* heartbeat, surveillance du RPi, aiguillage des trames */
+#include "t07_del.h"     /* T07 : DEL de places et eclairage */
+#include "essai_t07.h"   /* essai de T07 par la console */
+#include "essai_del.h"   /* balayage des DEL une a une (releve des positions) */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,7 +44,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+/* 1 = CAN en boucle interne : Discovery seule, sans transceiver ni autre noeud */
+#define ESSAI_CAN_LOOPBACK   1
+/* 1 = balayage des DEL une a une (essai_del) au lieu de l'application T07 */
+#define ESSAI_BALAYAGE_DEL   0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -100,8 +109,23 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_USART2_UART_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+  Console_Init();
+#if ESSAI_BALAYAGE_DEL
+  EssaiDel_Init();
+#else
+  if (!CanEsa_Init(&hcan1, ESSAI_CAN_LOOPBACK))
+  {
+    Console_Ecrire("ERREUR : CanEsa_Init\r\n");
+  }
+  if (!T07_Init(T07_ConfigDuNoeud(), &hspi1, CanEsa_Envoyer))
+  {
+    Console_Ecrire("ERREUR : T07_Init\r\n");
+  }
+  Noeud_Init(HAL_GetTick());
+  EssaiT07_Init();
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -111,6 +135,16 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+#if ESSAI_BALAYAGE_DEL
+    EssaiDel_Tache();
+#else
+    uint32_t maintenant = HAL_GetTick();
+    Noeud_Tache(maintenant);      /* lit le CAN : heartbeat du RPi, commandes T07 */
+    T07_Tache(maintenant);        /* clignotement et mise a jour des DEL */
+    CanEsa_Tache(maintenant);     /* annule les envois CAN bloques */
+    EssaiT07_Tache(maintenant);   /* commandes tapees dans la console */
+#endif
+    Console_Tache();
   }
   /* USER CODE END 3 */
 }
@@ -139,7 +173,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 8;
   RCC_OscInitStruct.PLL.PLLN = 336;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
