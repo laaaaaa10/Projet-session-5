@@ -16,6 +16,7 @@ de la disposition du clavier (fr-CA, en-US...).
   - est_disponible()       indique si le lecteur est branché
 
 Projet ESA - 243-557 - Automne 2026
+Auteur : Edwin (T05)
 """
 import re
 import threading
@@ -31,7 +32,8 @@ LONGUEUR_NUMERO = 6
 LONGUEUR_MAX_TAMPON = 32          # protection contre une lecture anormale
 
 # Mots recherchés dans le nom du périphérique si aucun nom n'est fourni
-NOMS_PAR_DEFAUT = ("barcode", "scanner", "bar code")
+# "wcm" : lecteur MJ-2090-CCD du projet (s'annonce « WCM HIDKeyBoard »)
+NOMS_PAR_DEFAUT = ("wcm", "barcode", "scanner", "bar code")
 
 
 def _codes_chiffres():
