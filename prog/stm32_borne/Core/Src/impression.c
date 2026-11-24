@@ -30,7 +30,7 @@
  *   huart3 = imprimante (PD8/PB11)
  *   huart2 = PuTTY, pour les essais sans imprimante
  * L'interruption globale de cet USART doit être activée dans CubeMX (NVIC). */
-#define UART_BILLET              huart3
+#define UART_BILLET              huart2
 extern UART_HandleTypeDef UART_BILLET;
 
 /* ========================================================================= */
