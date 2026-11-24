@@ -278,6 +278,25 @@ class TestsAcquisition(unittest.TestCase):
 
 
 class TestsFormatEtOptions(unittest.TestCase):
+    def test_numero_affiche_des_trois_badges(self):
+        for identifiant, numero in (("11008827F9", "0008923129"),
+                                     ("1100823734", "0008533812"),
+                                     ("1100880F2D", "0008916781")):
+            with self.subTest(identifiant=identifiant):
+                self.assertEqual(rfid.numero_badge(identifiant), numero)
+        self.assertEqual(rfid.numero_badge("11008827f9"), "0008923129")
+
+    def test_numero_affiche_refuse_un_identifiant_incomplet_ou_invalide(self):
+        for identifiant in (None, "", "008827F9", "11008827F900", "11008827FZ"):
+            with self.subTest(identifiant=identifiant):
+                with self.assertRaises(ValueError):
+                    rfid.numero_badge(identifiant)
+
+    def test_affichage_evenement_conserve_le_numero_et_identifiant_complet(self):
+        evenement = rfid.EvenementRFID("ACCEPTE", "valide", "11008827F9")
+        self.assertEqual(str(evenement),
+                         "ACCEPTE | BADGE=0008923129 | ID=11008827F9 | valide")
+
     def test_trois_badges_releves_sur_le_pi(self):
         for trame, identifiant in ((BADGE_A, "1100823734"),
                                    (BADGE_B, "11008827F9"), (BADGE_C, "1100880F2D")):
@@ -317,6 +336,7 @@ lecteur_nfc_rfid.LecteurRFID()
 
 class TestsProgrammePrincipal(unittest.TestCase):
     def test_main_transmet_seulement_les_lectures_acceptees_et_libere_le_lecteur(self):
+        comptes = borne.gestion_comptes.charger_comptes()
         evenements = [rfid.EvenementRFID("ACCEPTE", "valide", "1100823734"),
                       rfid.EvenementRFID("IGNORE", "trop vite", "1100823734"),
                       rfid.EvenementRFID("INVALIDE", "checksum")]
@@ -326,7 +346,7 @@ class TestsProgrammePrincipal(unittest.TestCase):
              redirect_stdout(io.StringIO()):
             classe.return_value.__enter__.return_value.lire.return_value = evenements
             self.assertEqual(borne.main([]), 0)
-            traiter.assert_called_once_with("1100823734")
+            traiter.assert_called_once_with("1100823734", comptes)
             classe.return_value.__exit__.assert_called_once()
             classe.assert_called_once_with(port="/dev/ttyAMA0", gpio=17, chip=0, delai_ms=500)
 
@@ -336,6 +356,66 @@ class TestsProgrammePrincipal(unittest.TestCase):
             classe.return_value.__enter__.side_effect = OSError("UART inaccessible")
             self.assertEqual(borne.main([]), 1)
         self.assertIn("UART inaccessible", erreur.getvalue())
+
+
+class TestsParcoursComptes(unittest.TestCase):
+    """Le vrai main, le vrai lecteur et le vrai CSV ; seul le materiel est simule."""
+
+    def executer_scenario(self, etapes):
+        banc = BancSimule()
+        etapes = iter(etapes)
+        sortie, erreur = io.StringIO(), io.StringIO()
+
+        def avancer(delai):
+            self.assertEqual(delai, 0.002)
+            try:
+                instant, presente, donnees = next(etapes)
+            except StopIteration:
+                raise KeyboardInterrupt
+            banc.maintenant = instant
+            banc.rng.definir(presente)
+            banc.uart.tampon.extend(donnees)
+
+        with ExitStack() as ressources:
+            banc.installer(ressources)
+            ressources.enter_context(patch.object(borne.time, "sleep", avancer))
+            ressources.enter_context(redirect_stdout(sortie))
+            ressources.enter_context(redirect_stderr(erreur))
+            resultat = borne.main([])
+
+        self.assertEqual(resultat, 0, erreur.getvalue())
+        self.assertEqual(erreur.getvalue(), "")
+        self.assertEqual(banc.fermetures, ["uart", "rng", "fabrique"])
+        return sortie.getvalue()
+
+    def test_trois_cartes_du_pi_reconnues_ou_refusees_sans_modifier_le_csv(self):
+        chemin = borne.gestion_comptes.CHEMIN_COMPTES
+        avant = chemin.read_bytes()
+        sortie = self.executer_scenario([
+            (1.0, True, BADGE_B),
+            (2.0, False, b""),
+            (2.1, True, BADGE_C),
+            (3.0, False, b""),
+            (3.1, True, BADGE_A),
+        ])
+        self.assertEqual(chemin.read_bytes(), avant)
+        self.assertIn("BORNE | 2 comptes charges.", sortie)
+        self.assertIn("BORNE | COMPTE RECONNU | Jason Duval | Numero de badge : 0008923129"
+                      " | ID UART : 11008827F9 | Solde : 20,00 $", sortie)
+        self.assertIn("BORNE | COMPTE RECONNU | Lucia Caminos | Numero de badge : 0008533812"
+                      " | ID UART : 1100823734 | Solde : 20,00 $", sortie)
+        self.assertIn("BORNE | REFUSE | Numero de badge : 0008916781"
+                      " | ID UART : 1100880F2D | Compte inconnu", sortie)
+        self.assertEqual(sortie.count("BORNE | COMPTE RECONNU"), 2)
+        self.assertEqual(sortie.count("BORNE | REFUSE"), 1)
+
+    def test_meme_numero_affiche_mais_autre_prefixe_ne_donne_pas_le_compte(self):
+        # Meme numero affiche que Jason, autre ID complet, checksum XOR valide.
+        autre_identifiant = b"\x0212008827F944\r\n\x03"
+        sortie = self.executer_scenario([(1.0, True, autre_identifiant)])
+        self.assertIn("BORNE | REFUSE | Numero de badge : 0008923129"
+                      " | ID UART : 12008827F9 | Compte inconnu", sortie)
+        self.assertNotIn("BORNE | COMPTE RECONNU", sortie)
 
 
 if __name__ == "__main__":

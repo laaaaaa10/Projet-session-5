@@ -100,6 +100,18 @@ def verifier_trame(trame):
     return identifiant
 
 
+def numero_badge(identifiant):
+    """Numero decimal affiche sur dix chiffres a partir d'un ID UART complet.
+
+    Convention relevee sur le montage : 11008827F9 -> 0008923129.
+    Les huit derniers caracteres donnent le numero affiche ; les dix
+    caracteres restent la cle pour le rearmement et la recherche du compte.
+    """
+    if not isinstance(identifiant, str) or re.fullmatch(r"[0-9A-Fa-f]{10}", identifiant) is None:
+        raise ValueError("ID UART attendu : exactement 10 caracteres hexadecimaux")
+    return f"{int(identifiant[2:], 16):010d}"
+
+
 class Reception:
     """Reception progressive : pas d'attente bloquante de fin de trame."""
 
@@ -152,7 +164,8 @@ class EvenementRFID:
         if self.type in ("INFO", "PRESENCE", "RETRAIT"):
             return self.message
         if self.identifiant is not None:
-            return f"{self.type} | ID={self.identifiant} | {self.message}"
+            return (f"{self.type} | BADGE={numero_badge(self.identifiant)}"
+                    f" | ID={self.identifiant} | {self.message}")
         detail = f" | {self.brut.hex(' ')}" if self.brut else ""
         return f"{self.type} : {self.message}{detail}"
 

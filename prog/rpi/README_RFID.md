@@ -2,8 +2,9 @@
 
 Le programme principal ouvre le lecteur et appelle `lire()` dans sa boucle.
 Un evenement `ACCEPTE` transmet l'identifiant a `traiter_badge()` dans `main.py`.
-Pour cette etape, cette fonction affiche l'identifiant recu. La gestion des
-comptes et transactions reste a implementer.
+Cette fonction recherche le compte dans `donnees/comptes.csv` et affiche son
+nom et son solde, ou refuse la carte inconnue. La transaction reste a implementer.
+Voir [README_COMPTES.md](README_COMPTES.md) pour les comptes preconfigures.
 
 ## Configuration du montage teste
 
@@ -41,19 +42,34 @@ sudo python3 prog/rpi/modules/lecteur_nfc_rfid.py
 
 Un seul programme doit ouvrir le lecteur a la fois. Quitter avec Ctrl+C
 libere l'UART, l'entree RNG et la fabrique GPIO, y compris en cas d'erreur.
+Ctrl+Z suspend le processus : les ressources restent alors reservees.
 
-## Copier la version modifiee depuis le PC vers le Pi
+## Mettre a jour le Pi par Git
 
-Depuis la racine du depot sur le PC, la liaison Ethernet connue est utilisee :
+Les modifications sont faites, testees et commitees dans le depot du PC.
+Depuis ce depot, sur la branche `integration-rfid` :
 
 ```bash
-ssh etudiant@10.42.0.201 'mkdir -p ~/esa-rfid-test'
-scp -r prog/rpi etudiant@10.42.0.201:~/esa-rfid-test/
-ssh -t etudiant@10.42.0.201 'sudo python3 ~/esa-rfid-test/rpi/main.py'
+git push -u origin integration-rfid
 ```
 
-Cette copie est destinee au test sur le Pi. Les fichiers sources du projet
-restent dans le depot Git du PC.
+Sur le Pi, arreter le programme avec Ctrl+C, puis mettre a jour sa copie :
+
+```bash
+cd ~/Projects/Projet-session-5
+git switch integration-rfid
+git pull --ff-only origin integration-rfid
+```
+
+Une fois la mise a jour reussie, lancer `sudo python3 prog/rpi/main.py`.
+Ne pas lancer en parallele l'ancienne copie `~/esa-rfid-test/rpi/main.py`.
+
+Pour une premiere installation sur le Pi, apres le push depuis le PC :
+
+```bash
+mkdir -p ~/Projects
+git clone --branch integration-rfid https://github.com/laaaaaa10/Projet-session-5.git ~/Projects/Projet-session-5
+```
 
 ## Comportement conserve et correction au demarrage
 
@@ -78,22 +94,44 @@ traitements CAN, MQTT et ecran devront laisser revenir cette boucle rapidement.
 `ACCEPTE` signifie que la lecture est valide. L'autorisation d'un compte et la
 commande d'un actionneur doivent etre decidees ensuite par la logique de borne.
 
+## Numero de badge et identifiant complet
+
+La fonction publique `lecteur_nfc_rfid.numero_badge(identifiant)` convertit
+les huit derniers caracteres hexadecimaux d'un ID valide de dix caracteres
+en un numero decimal complete sur dix chiffres. Elle est utilisee par
+l'affichage des evenements RFID et par `main.py` ; il n'y a qu'une seule
+implementation de cette conversion.
+
+Les correspondances relevees sont `11008827F9` / `0008923129` pour Jason et
+`1100823734` / `0008533812` pour Lucia. La troisieme carte relevee,
+`1100880F2D`, doit produire `BORNE | REFUSE` puisqu'elle est absente du CSV.
+
+Le numero decimal est uniquement un affichage. Le checksum, le rearmement
+et la recherche de compte utilisent toujours l'ID UART complet.
+
 ## Verification logicielle sur PC
 
 ```bash
 python3 -m unittest discover -s prog/tests -p 'test_rfid_integration.py' -v
 ```
 
-25 tests simules couvrent la reception progressive, les trames invalides, le
+Les tests couvrent la reception progressive, les trames invalides, le
 rearmement, le demarrage avec un badge present, le choix explicite de gpiochip0,
 les erreurs materielles, la liberation des ressources et l'appel de
 `traiter_badge()` uniquement pour `ACCEPTE`.
 
+Les tests de parcours utilisent le vrai `main.py`, le vrai module RFID et
+le vrai chargeur CSV. Seuls l'UART, le GPIO et le temps sont simules. Les
+trames des trois cartes passent donc par la reception, la verification du
+checksum, le rearmement et la recherche du compte. La fonction `numero_badge()`
+n'est pas remplacee par une simulation : son absence fait echouer ces tests.
+
 ## Verification sur le montage
 
 1. Lancer `main.py` sans badge : la configuration doit afficher gpiochip0.
-2. Presenter un badge : une ligne `ACCEPTE` et une ligne `BORNE | Identifiant
-   recu` doivent apparaitre pour cette lecture.
+2. Presenter Jason ou Lucia : une ligne `ACCEPTE` puis `BORNE | COMPTE RECONNU`
+   doivent afficher les bons numeros et le bon compte. La troisieme carte
+   doit donner une lecture `ACCEPTE` suivie de `BORNE | REFUSE`.
 3. Garder le badge : aucune nouvelle action de borne pour le meme identifiant.
 4. Retirer et representer rapidement : `IGNORE`, sans nouvelle ligne `BORNE`.
 5. Laisser ce badge refuse dans la zone : aucune acceptation differee.

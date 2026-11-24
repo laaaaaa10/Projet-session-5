@@ -8,31 +8,34 @@ La troisieme carte reste absente du fichier pour tester le refus.
 | Jason Duval | `11008827F9` | `0008923129` | 20,00 $ |
 | Lucia Caminos | `1100823734` | `0008533812` | 20,00 $ |
 
-## Installation
+## Organisation des modules
 
-L'archive contient les fichiers suivants a placer dans le depot existant :
+- `modules/lecteur_nfc_rfid.py` recoit les trames, verifie leur checksum et
+  gere le rearmement. Il definit aussi `numero_badge()`, utilise pour
+  l'affichage decimal des identifiants valides.
+- `modules/gestion_comptes.py` charge et valide les deux comptes du CSV.
+- `main.py` relie une lecture valide a son compte et affiche le resultat.
+- `donnees/comptes.csv` contient les donnees modifiables des comptes.
 
-- `prog/rpi/main.py` : remplacer la version envoyee pour cette modification.
-- `prog/rpi/modules/gestion_comptes.py` : ajouter ce module.
-- `prog/rpi/donnees/comptes.csv` : ajouter le fichier des deux comptes.
-- `prog/rpi/README_COMPTES.md` : cette notice.
+La conversion du numero de badge est definie une seule fois dans le module
+RFID. Le module de comptes utilise uniquement l'ID complet comme cle.
 
-Conserver le module existant `prog/rpi/modules/lecteur_nfc_rfid.py` et les autres
-fichiers du projet. L'archive est un ajout au projet, pas un projet autonome.
-Elle utilise la fonction `numero_badge()` deja presente dans le lecteur.
+## Installation et mises a jour
 
-Apres avoir telecharge l'archive dans `~/Downloads`, arreter la borne avec
-Ctrl+C, puis executer :
+Tester et commiter les modifications sur le PC, puis les pousser sur la
+branche `integration-rfid`. Le Pi recupere cette meme branche par Git.
+Voir [README_RFID.md](README_RFID.md#mettre-a-jour-le-pi-par-git) pour les
+commandes du premier clonage et des mises a jour.
+
+Apres une mise a jour reussie, lancer sur le Pi :
 
 ```bash
 cd ~/Projects/Projet-session-5
-unzip -o ~/Downloads/comptes_rfid_jason_lucia.zip
 sudo python3 prog/rpi/main.py
 ```
 
 Les options existantes `--port`, `--gpio`, `--chip` et `--delai-ms` restent
-disponibles. Si le projet tourne sur le Pi, copier ces fichiers dans son depot
-avant d'y lancer la commande Python.
+disponibles. Arreter avec Ctrl+C avant de mettre a jour ou relancer la borne.
 
 ## Format du CSV
 
@@ -71,8 +74,8 @@ BORNE | COMPTE RECONNU | Lucia Caminos | Numero de badge : 0008533812 | ID UART 
 ```
 
 Pour toute autre carte, la ligne `BORNE` indique `REFUSE` et `Compte inconnu`.
-L'identifiant de la troisieme carte n'a pas besoin d'etre inscrit : seuls les
-deux ID complets du CSV sont reconnus.
+La troisieme carte relevee, `1100880F2D`, reste absente du CSV : seuls les
+deux ID complets de Jason et Lucia sont reconnus.
 
 La ligne `ACCEPTE` du lecteur signifie seulement que la lecture RFID est
 valide. Une carte inconnue peut donc produire une lecture `ACCEPTE`, suivie
@@ -92,7 +95,20 @@ aucun paiement, debit, credit ou mouvement d'actionneur. La creation de compte
 par interface et la verification du solde pour payer une commande restent des
 etapes ulterieures.
 
-## Verification sur le montage
+## Verification logicielle puis sur le montage
+
+Depuis la racine du depot, sur le PC :
+
+```bash
+python3 -B -m unittest discover -s prog/tests -p 'test_rfid_integration.py' -v
+```
+
+Cette suite exerce les vrais modules RFID et comptes, avec l'UART et le GPIO
+simules. Elle verifie les trois cartes, les numeros affiches, le refus d'un
+autre ID complet ayant le meme numero affiche et l'absence de modification
+du CSV. La fermeture des ressources est aussi verifiee.
+
+Sur le montage :
 
 1. Passer Jason : verifier le nom, le numero, l'ID complet et le solde.
 2. Retirer sa carte et passer Lucia : verifier ses informations.
@@ -100,8 +116,7 @@ etapes ulterieures.
 4. Garder chaque carte devant le lecteur : la logique de rearmement existante
    du module RFID continue de controler les lectures transmises a la borne.
 
-Les essais logiciels du correctif utilisent un lecteur simule. La verification
-physique reste a faire sur le montage.
+Les essais logiciels ne remplacent pas cette verification physique.
 
 ## Origine des donnees
 
