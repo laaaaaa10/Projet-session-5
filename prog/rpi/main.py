@@ -1,56 +1,31 @@
 #!/usr/bin/env python3
-"""Raspberry Pi de la borne - Programme principal (integration RFID).
+"""Borne Raspberry Pi : assemblage des modules et liberation du materiel.
 
 Lancement : sudo python3 prog/rpi/main.py
 Options : --port /dev/ttyAMA0 --gpio 17 --chip 0 --delai-ms 500
+Un badge seul consulte le compte. T04 doit demander un paiement explicitement.
 """
 
 import sys
-import time
 
-from modules import gestion_comptes, lecteur_nfc_rfid
-
-
-def traiter_badge(identifiant, comptes):
-    """Cherche le compte d'une lecture valide et affiche son solde.
-
-    Retourne le compte reconnu, ou None si le badge est inconnu.
-    Cette etape ne debite rien et ne commande aucun actionneur.
-    """
-    numero = lecteur_nfc_rfid.numero_badge(identifiant)
-    badge = f"Numero de badge : {numero} | ID UART : {identifiant}"
-    compte = comptes.get(identifiant)
-    if compte is None:
-        print(f"BORNE | REFUSE | {badge} | Compte inconnu", flush=True)
-        return None
-
-    print(
-        f"BORNE | COMPTE RECONNU | {compte.nom} | {badge}"
-        f" | Solde : {compte.solde_affiche}",
-        flush=True,
-    )
-    return compte
+from application.borne import Borne
+from interface.console_borne import ConsoleBorne
+from modules.gestion_comptes import ServiceComptes
+from modules import lecteur_nfc_rfid
+from stockage.comptes_csv import DepotComptesCSV, DOSSIER_ACTIF
 
 
-def main(argv=None):
+def main(argv=None, *, dossier_donnees=DOSSIER_ACTIF):
     args = lecteur_nfc_rfid.lire_arguments(argv, description=__doc__)
-    origine = time.monotonic()
     try:
-        comptes = gestion_comptes.charger_comptes()
-        print(f"BORNE | {len(comptes)} comptes charges.", flush=True)
+        comptes = ServiceComptes(DepotComptesCSV(dossier_donnees))
+        console = ConsoleBorne()
+        console.demarrage(comptes.lister_comptes())
+        borne = Borne(comptes, console)
         with lecteur_nfc_rfid.LecteurRFID(
             port=args.port, gpio=args.gpio, chip=args.chip, delai_ms=args.delai_ms,
         ) as lecteur:
-            while True:
-                for evenement in lecteur.lire():
-                    print(f"[{time.monotonic() - origine:8.3f} s] {evenement}", flush=True)
-                    if evenement.type == "ACCEPTE":
-                        traiter_badge(evenement.identifiant, comptes)
-
-                # TODO : ajouter ici les traitements non bloquants du CAN,
-                # du MQTT, de l'ecran et des autres modules une fois initialises.
-                # Ne pas attendre 500 ms ici : le module RFID gere ce delai.
-                time.sleep(0.002)
+            borne.executer(lecteur)
     except KeyboardInterrupt:
         print("\nProgramme termine.")
         return 0

@@ -1,62 +1,65 @@
-"""Comptes preconfigures de la borne, charges une fois au demarrage."""
+"""T02 : consultation, credit et debit integral. Aucun calcul de tarif ici."""
 
-import csv
-import re
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import replace
+from datetime import datetime, timezone
 
-
-CHEMIN_COMPTES = Path(__file__).resolve().parent.parent / "donnees" / "comptes.csv"
-CHAMPS_CSV = ["id_uart", "nom", "solde_centimes"]
-
-
-@dataclass(frozen=True)
-class Compte:
-    id_uart: str
-    nom: str
-    solde_centimes: int
-
-    @property
-    def solde_affiche(self):
-        dollars, cents = divmod(self.solde_centimes, 100)
-        return f"{dollars},{cents:02d} $"
+from modeles.comptes import (
+    ConflitTransaction, ResultatOperation, StatutOperation, TypeOperation,
+    valider_id_transaction, valider_id_uart, valider_montant,
+)
 
 
-def charger_comptes(chemin=CHEMIN_COMPTES):
-    """Lit le CSV sans le modifier et retourne les comptes par ID UART complet.
+class ServiceComptes:
+    def __init__(self, depot):
+        self.depot = depot
 
-    Un fichier absent ou invalide provoque une erreur au demarrage.
-    Une carte inconnue ne cree jamais de compte automatiquement.
-    """
-    comptes = {}
-    with Path(chemin).open("r", encoding="utf-8-sig", newline="") as fichier:
-        lecteur = csv.DictReader(fichier)
-        if lecteur.fieldnames != CHAMPS_CSV:
-            raise ValueError(
-                "CSV des comptes : en-tete attendu " + ",".join(CHAMPS_CSV)
+    def lister_comptes(self):
+        with self.depot.transaction() as transaction:
+            return dict(transaction.comptes)
+
+    def consulter_compte(self, id_uart):
+        id_uart = valider_id_uart(id_uart)
+        return self.lister_comptes().get(id_uart)
+
+    def retrouver_operation(self, id_transaction):
+        valider_id_transaction(id_transaction)
+        with self.depot.transaction() as transaction:
+            return transaction.operations.get(id_transaction)
+
+    def payer(self, id_transaction, id_uart, montant_centimes):
+        return self._operer(TypeOperation.PAIEMENT, id_transaction, id_uart, montant_centimes)
+
+    def crediter(self, id_transaction, id_uart, montant_centimes):
+        return self._operer(TypeOperation.CREDIT, id_transaction, id_uart, montant_centimes)
+
+    def _operer(self, type_operation, id_transaction, id_uart, montant):
+        valider_id_transaction(id_transaction)
+        id_uart = valider_id_uart(id_uart)
+        valider_montant(montant, credit=type_operation == TypeOperation.CREDIT)
+        with self.depot.transaction() as transaction:
+            ancien = transaction.operations.get(id_transaction)
+            if ancien is not None:
+                if (ancien.type_operation, ancien.id_uart, ancien.montant_centimes) != (
+                    type_operation, id_uart, montant,
+                ):
+                    raise ConflitTransaction("ID deja utilise avec d'autres donnees : " + id_transaction)
+                return replace(ancien, deja_traitee=True)
+
+            compte = transaction.comptes.get(id_uart)
+            avant = apres = None
+            if compte is None:
+                statut = StatutOperation.COMPTE_INCONNU
+            else:
+                avant = apres = compte.solde_centimes
+                if type_operation == TypeOperation.CREDIT:
+                    statut, apres = StatutOperation.CREDITE, avant + montant
+                elif avant >= montant:
+                    statut, apres = StatutOperation.PAIE, avant - montant
+                else:
+                    statut = StatutOperation.SOLDE_INSUFFISANT
+            resultat = ResultatOperation(
+                id_transaction, datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                type_operation, id_uart, montant, statut, avant, apres,
             )
-
-        for ligne in lecteur:
-            contexte = f"CSV des comptes, ligne {lecteur.line_num}"
-            if None in ligne or any(ligne[champ] is None for champ in CHAMPS_CSV):
-                raise ValueError(f"{contexte} : il faut exactement trois colonnes")
-
-            identifiant = ligne["id_uart"].strip().upper()
-            nom = ligne["nom"].strip()
-            if re.fullmatch(r"[0-9A-F]{10}", identifiant) is None:
-                raise ValueError(f"{contexte} : ID UART invalide (10 chiffres hexadecimaux)")
-            if identifiant in comptes:
-                raise ValueError(f"{contexte} : ID UART en double : {identifiant}")
-            if not nom:
-                raise ValueError(f"{contexte} : nom manquant")
-
-            try:
-                solde = int(ligne["solde_centimes"])
-            except ValueError as erreur:
-                raise ValueError(f"{contexte} : solde attendu en centimes entiers") from erreur
-            if solde < 0:
-                raise ValueError(f"{contexte} : le solde ne peut pas etre negatif")
-
-            comptes[identifiant] = Compte(identifiant, nom, solde)
-
-    return comptes
+            transaction.enregistrer(resultat)
+            return resultat

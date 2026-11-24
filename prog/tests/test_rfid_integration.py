@@ -9,6 +9,7 @@ import io
 from pathlib import Path
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -17,6 +18,8 @@ RPI = Path(__file__).resolve().parents[1] / "rpi"
 sys.path.insert(0, str(RPI))
 from modules import lecteur_nfc_rfid as rfid
 import main as borne
+from application import borne as application_borne
+from stockage.comptes_csv import CHEMIN_MODELE, charger_comptes
 
 
 BADGE_A = b"\x02110082373490\r\n\x03"
@@ -336,25 +339,26 @@ lecteur_nfc_rfid.LecteurRFID()
 
 class TestsProgrammePrincipal(unittest.TestCase):
     def test_main_transmet_seulement_les_lectures_acceptees_et_libere_le_lecteur(self):
-        comptes = borne.gestion_comptes.charger_comptes()
         evenements = [rfid.EvenementRFID("ACCEPTE", "valide", "1100823734"),
                       rfid.EvenementRFID("IGNORE", "trop vite", "1100823734"),
                       rfid.EvenementRFID("INVALIDE", "checksum")]
         with patch.object(rfid, "LecteurRFID") as classe, \
-             patch.object(borne, "traiter_badge") as traiter, \
-             patch.object(borne.time, "sleep", side_effect=KeyboardInterrupt), \
-             redirect_stdout(io.StringIO()):
+             patch.object(application_borne.time, "sleep", side_effect=KeyboardInterrupt), \
+             TemporaryDirectory() as dossier, redirect_stdout(io.StringIO()) as sortie:
             classe.return_value.__enter__.return_value.lire.return_value = evenements
-            self.assertEqual(borne.main([]), 0)
-            traiter.assert_called_once_with("1100823734", comptes)
+            self.assertEqual(borne.main([], dossier_donnees=dossier), 0)
+            self.assertEqual(sortie.getvalue().count("BORNE | COMPTE RECONNU"), 1)
+            self.assertIn("Lucia Caminos", sortie.getvalue())
+            self.assertEqual(charger_comptes(Path(dossier) / "comptes.csv")["1100823734"].solde_centimes, 2000)
             classe.return_value.__exit__.assert_called_once()
             classe.assert_called_once_with(port="/dev/ttyAMA0", gpio=17, chip=0, delai_ms=500)
 
     def test_erreur_materielle_signalee_avec_code_echec(self):
         erreur = io.StringIO()
-        with patch.object(rfid, "LecteurRFID") as classe, redirect_stderr(erreur):
+        with patch.object(rfid, "LecteurRFID") as classe, TemporaryDirectory() as dossier, \
+             redirect_stderr(erreur), redirect_stdout(io.StringIO()):
             classe.return_value.__enter__.side_effect = OSError("UART inaccessible")
-            self.assertEqual(borne.main([]), 1)
+            self.assertEqual(borne.main([], dossier_donnees=dossier), 1)
         self.assertIn("UART inaccessible", erreur.getvalue())
 
 
@@ -378,10 +382,12 @@ class TestsParcoursComptes(unittest.TestCase):
 
         with ExitStack() as ressources:
             banc.installer(ressources)
-            ressources.enter_context(patch.object(borne.time, "sleep", avancer))
+            ressources.enter_context(patch.object(application_borne.time, "sleep", avancer))
             ressources.enter_context(redirect_stdout(sortie))
             ressources.enter_context(redirect_stderr(erreur))
-            resultat = borne.main([])
+            dossier = ressources.enter_context(TemporaryDirectory())
+            resultat = borne.main([], dossier_donnees=dossier)
+            self.assertEqual(charger_comptes(Path(dossier) / "comptes.csv"), charger_comptes())
 
         self.assertEqual(resultat, 0, erreur.getvalue())
         self.assertEqual(erreur.getvalue(), "")
@@ -389,7 +395,7 @@ class TestsParcoursComptes(unittest.TestCase):
         return sortie.getvalue()
 
     def test_trois_cartes_du_pi_reconnues_ou_refusees_sans_modifier_le_csv(self):
-        chemin = borne.gestion_comptes.CHEMIN_COMPTES
+        chemin = CHEMIN_MODELE
         avant = chemin.read_bytes()
         sortie = self.executer_scenario([
             (1.0, True, BADGE_B),

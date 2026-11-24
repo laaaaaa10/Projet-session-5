@@ -1,9 +1,10 @@
 # Integration du lecteur RFID
 
-Le programme principal ouvre le lecteur et appelle `lire()` dans sa boucle.
-Un evenement `ACCEPTE` transmet l'identifiant a `traiter_badge()` dans `main.py`.
-Cette fonction recherche le compte dans `donnees/comptes.csv` et affiche son
-nom et son solde, ou refuse la carte inconnue. La transaction reste a implementer.
+Le programme principal assemble les modules et ouvre le lecteur. La boucle
+est dans `application/borne.py` : seuls les evenements `ACCEPTE` atteignent
+le service des comptes. Un badge seul consulte le compte ; une demande
+explicite de T04 permet un paiement. Les donnees actives sont dans
+`donnees/actives/`, hors des fichiers suivis par Git.
 Voir [README_COMPTES.md](README_COMPTES.md) pour les comptes preconfigures.
 
 ## Configuration du montage teste
@@ -87,8 +88,9 @@ git clone --branch integration-rfid https://github.com/laaaaaa10/Projet-session-
 `message`, `identifiant` et `brut`. Les types sont `INFO`, `PRESENCE`, `RETRAIT`,
 `ACCEPTE`, `IGNORE` et `INVALIDE`. La methode n'attend pas les 500 ms : l'UART
 utilise `timeout=0`, les lectures sont limitees a 256 octets par passage et les
-delais reposent sur une horloge monotone. Le programme principal repasse environ
-toutes les 2 ms ; ce n'est pas une garantie temps reel de Linux. Les futurs
+delais reposent sur une horloge monotone. La boucle attend 2 ms entre les
+passages ; les traitements et les ecritures disque peuvent allonger ce temps.
+Ce n'est pas une garantie temps reel de Linux. Les futurs
 traitements CAN, MQTT et ecran devront laisser revenir cette boucle rapidement.
 
 `ACCEPTE` signifie que la lecture est valide. L'autorisation d'un compte et la
@@ -99,7 +101,7 @@ commande d'un actionneur doivent etre decidees ensuite par la logique de borne.
 La fonction publique `lecteur_nfc_rfid.numero_badge(identifiant)` convertit
 les huit derniers caracteres hexadecimaux d'un ID valide de dix caracteres
 en un numero decimal complete sur dix chiffres. Elle est utilisee par
-l'affichage des evenements RFID et par `main.py` ; il n'y a qu'une seule
+l'affichage des evenements RFID et par `interface/console_borne.py` ; il n'y a qu'une seule
 implementation de cette conversion.
 
 Les correspondances relevees sont `11008827F9` / `0008923129` pour Jason et
@@ -117,11 +119,12 @@ python3 -m unittest discover -s prog/tests -p 'test_rfid_integration.py' -v
 
 Les tests couvrent la reception progressive, les trames invalides, le
 rearmement, le demarrage avec un badge present, le choix explicite de gpiochip0,
-les erreurs materielles, la liberation des ressources et l'appel de
-`traiter_badge()` uniquement pour `ACCEPTE`.
+les erreurs materielles, la liberation des ressources et la transmission
+au service des comptes uniquement pour `ACCEPTE`.
 
 Les tests de parcours utilisent le vrai `main.py`, le vrai module RFID et
-le vrai chargeur CSV. Seuls l'UART, le GPIO et le temps sont simules. Les
+le vrai stockage CSV, dans des dossiers temporaires. Seuls l'UART, le GPIO
+et le temps sont simules. Les
 trames des trois cartes passent donc par la reception, la verification du
 checksum, le rearmement et la recherche du compte. La fonction `numero_badge()`
 n'est pas remplacee par une simulation : son absence fait echouer ces tests.
