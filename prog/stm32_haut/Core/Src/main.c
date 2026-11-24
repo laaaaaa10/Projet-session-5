@@ -25,6 +25,7 @@
 #include "clickboard_io_mux.h"
 #include "ir_detector.h"
 #include "stepper_motor.h"
+#include "drive_motor.h"
 #include "inductive_sensor.h"
 #include "temp_test.h"          /* TEMP-TEST */
 
@@ -119,6 +120,7 @@ int main(void)
   MX_TIM12_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+  DriveMotor_Init();
   clickboard_status = ClickBoard_InitPWM(&clickboard, &hi2c1);
   if (clickboard_status == HAL_OK)
   {
@@ -134,8 +136,16 @@ int main(void)
     
 
     /* USER CODE BEGIN 3 */
-    Stepper_Rotate(&stepper_rotation, STEPPER_HORAIRE, 800U, 560U);
-    Stepper_Rotate(&stepper_rotation, STEPPER_ANTIHORAIRE, 200U, 560U);
+    //Stepper_Rotate(&stepper_rotation, STEPPER_HORAIRE, 800U, 560U);
+    //Stepper_Rotate(&stepper_height, STEPPER_ANTIHORAIRE, 200U, 560U);
+	  DriveMotor_Run(DRIVEMOTOR_SORTIR, 100U);
+	  HAL_Delay(3000U);
+	  DriveMotor_Stop();
+	  HAL_Delay(1000U);
+	  DriveMotor_Run(DRIVEMOTOR_RENTRER, 100U);
+	  HAL_Delay(3000U);
+	  DriveMotor_Stop();
+	  HAL_Delay(1000U);
 
     /* TU-10 : lecture des 3 capteurs d'étage */
     for (uint8_t i = 0U; i < INDUCTIVE_SENSOR_COUNT; i++)
