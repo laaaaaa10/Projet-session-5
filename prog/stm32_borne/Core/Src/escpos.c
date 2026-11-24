@@ -97,3 +97,20 @@
     const uint8_t lf = LF;
     ajouter_octets(t, &lf, 1u);
 }
+ void EscPos_Image(EscPosTampon *t, const uint8_t *bitmap,
+                   uint16_t largeur_octets, uint16_t hauteur)
+ {
+     uint32_t taille = (uint32_t)largeur_octets * hauteur;
+     if (taille == 0u || taille > 0xFFFFu)
+     {
+         t->debordement = true;
+         return;
+     }
+
+     /* GS v 0 m xL xH yL yH : m = 0 (taille normale), x en octets, y en points */
+     const uint8_t entete[8] = { GS, 'v', '0', 0u,
+                                 (uint8_t)(largeur_octets & 0xFFu), (uint8_t)(largeur_octets >> 8),
+                                 (uint8_t)(hauteur & 0xFFu),        (uint8_t)(hauteur >> 8) };
+     ajouter_octets(t, entete, 8u);
+     ajouter_octets(t, bitmap, (uint16_t)taille);
+ }

@@ -3,7 +3,6 @@
  * @brief   T05 - Impression des billets (voir impression.h).
  *
  * Projet ESA - 243-557 - Automne 2026
- * Auteur : Edwin (T05)
  */
 #include "impression.h"
 
@@ -12,6 +11,7 @@
 
 #include "main.h"        /* HAL_GetTick, HAL_UART_Transmit_IT */
 #include "can_borne.h"   /* CanBorne_Envoyer */
+#include "logo_esa.h"    /* LOGO_ESA : bitmap du logo */
 
 /* ========================================================================= */
 /* Paramètres                                                                */
@@ -21,15 +21,16 @@
 #define NB_PLACES                14u
 #define TRANSACTION_MAX          999999u
 #define DELAI_APPARIEMENT_MS     1000u    /* protocole v1.6 : ~1 s              */
-#define DELAI_UART_MS            3000u    /* envoi d'un billet : ~200 ms normal */
 #define DELAI_DOUBLON_MS         10000u   /* fenêtre de détection des répétitions */
 #define NB_HISTORIQUE            4u       /* demandes terminées mémorisées      */
 #define TEXTE_TARIF              "Tarif : 0,10 $ / minute"
+#define DELAI_UART_MS            5000u    /* envoi d'un billet avec logo : ~2 s à 9600 bauds */
+
 /* UART de sortie du billet :
  *   huart3 = imprimante (PD8/PB11)
  *   huart2 = PuTTY, pour les essais sans imprimante
  * L'interruption globale de cet USART doit être activée dans CubeMX (NVIC). */
-#define UART_BILLET              huart3
+#define UART_BILLET              huart2
 extern UART_HandleTypeDef UART_BILLET;
 
 /* ========================================================================= */
@@ -73,7 +74,7 @@ static Demande    s_demande;
 static Historique s_historique[NB_HISTORIQUE];
 static uint8_t    s_prochain_historique;
 static EnvoiUart  s_uart;
-static uint8_t    s_memoire[256];   /* tampon ESC/POS : doit rester valide pendant l'envoi */
+static uint8_t    s_memoire[2048];  /* tampon ESC/POS (logo ~1,5 ko) : doit rester valide pendant l'envoi */
 
 /* ========================================================================= */
 /* Fonctions internes                                                        */
@@ -446,13 +447,10 @@ bool Impression_ComposerBillet(const DonneesBillet *d, EscPosTampon *t)
 
     EscPos_Reinitialiser(t);
 
-    /* En-tête */
+    /* En-tête : logo centré */
     EscPos_Alignement(t, 1);
-    EscPos_TailleDouble(t, true);
-    EscPos_Gras(t, true);
-    EscPos_Ligne(t, "ESA");
-    EscPos_TailleDouble(t, false);
-    EscPos_Gras(t, false);
+    EscPos_Image(t, LOGO_ESA, LOGO_ESA_LARGEUR_OCTETS, LOGO_ESA_HAUTEUR);
+    EscPos_Ligne(t, "Eco Stationnement Automatisé");
     EscPos_Ligne(t, "Cegep Limoilou");
     EscPos_Ligne(t, "--------------------------------");
 
@@ -471,7 +469,7 @@ bool Impression_ComposerBillet(const DonneesBillet *d, EscPosTampon *t)
 
     /* Numéro et code-barres */
     EscPos_Alignement(t, 1);
-    EscPos_Ligne(t, "No de transaction");
+    EscPos_Ligne(t, "No. de transaction");
     EscPos_Code128(t, numero, 80, 3);
     EscPos_Avancer(t, 4);
 
