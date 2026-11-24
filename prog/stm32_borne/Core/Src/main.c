@@ -19,11 +19,13 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "usb_host.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include "escpos.h"
 #include "impression.h"
 #include "can_borne.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -85,7 +87,7 @@ void MX_USB_HOST_Process(void);
 static void debug(const char *texte)
 {
     uint32_t t0 = HAL_GetTick();
-    while (huart2.gState != HAL_UART_STATE_READY && (HAL_GetTick() - t0) < 500u)
+    while (huart2.gState != HAL_UART_STATE_READY && (HAL_GetTick() - t0) < 3000u)
     {
     }
     HAL_UART_Transmit(&huart2, (const uint8_t *)texte, strlen(texte), 100);
@@ -327,7 +329,7 @@ static void MX_CAN1_Init(void)
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
   hcan1.Init.Prescaler = 6;
-  hcan1.Init.Mode = CAN_MODE_LOOPBACK;
+  hcan1.Init.Mode = CAN_MODE_NORMAL;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
   hcan1.Init.TimeSeg1 = CAN_BS1_11TQ;
   hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
