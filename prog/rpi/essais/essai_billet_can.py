@@ -8,7 +8,6 @@ Usage : python3 essai_billet_can.py [transaction] [place]
         ex. python3 essai_billet_can.py 123456 12
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T05)
 """
 import struct
 import sys
