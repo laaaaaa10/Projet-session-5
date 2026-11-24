@@ -22,6 +22,9 @@ La création de comptes par interface reste hors de cette version.
 | `application/borne.py` | Boucle, demande en attente, transmission des résultats à T04 |
 | `api/paiements.py` | Contrat public de paiement et types importables par T04 |
 | `application/integration_t04.py` | Point de branchement du futur module T04 |
+| `api/identification.py` | Contrat de lecture des cartes et de consultation des soldes pour T03 |
+| `application/acces_identification.py` | Accès en lecture seule fourni à T03 |
+| `application/integration_t03.py` | Point de branchement du module du responsable T03 |
 | `modeles/comptes.py` | Compte, demande, résultat, statuts et validation des paramètres |
 | `modules/gestion_comptes.py` | Consultation, crédit, débit intégral et détection des doublons |
 | `stockage/comptes_csv.py` | Lecture/écriture CSV, verrou et récupération des soldes |
@@ -35,6 +38,9 @@ La création de comptes par interface reste hors de cette version.
 Le lecteur RFID ne connaît ni les comptes ni les tarifs. Le service de comptes
 ne connaît ni GPIO, ni UART, ni l'écran. Les modules métier n'affichent rien.
 L'interface Python est détaillée dans [INTERFACE_T04_T02.md](INTERFACE_T04_T02.md).
+L'accès de T03 aux identifications et aux soldes est décrit dans
+[INTERFACE_T03_T02.md](INTERFACE_T03_T02.md). La réservation et la commande
+de barrière appartiennent au module de son responsable ; cet accès ne les réalise pas.
 Le code réel de T04 n'est pas présent dans cette branche. Le point de branchement
 est prêt dans `application/integration_t04.py` ; il suffit d'y retourner le futur
 module, qui reçoit l'API de paiement et fournit `actualiser()`.
@@ -114,6 +120,16 @@ matériel, utilisable sur le PC Linux ou le Pi sans sudo, est disponible :
 ```bash
 python3 -B prog/rpi/outils/demo_interface_t04.py
 ```
+
+L'accès en lecture seule pour T03 dispose aussi de son exemple et de sa démo :
+
+```bash
+python3 -B prog/rpi/outils/demo_interface_t03.py
+```
+
+La suite `test_interface_t03.py` vérifie notamment la séparation des lectures
+d'identification et des cartes de paiement, avec un seul lecteur dans le vrai
+programme principal et les périphériques simulés.
 
 Couverture : les trois cartes, absence de débit à la simple lecture, paiements
 et crédits, solde insuffisant, doublons après redémarrage, conflits d'identifiants,

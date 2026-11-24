@@ -42,6 +42,18 @@ class Compte:
 
 
 @dataclass(frozen=True)
+class IdentificationCarte:
+    """Instantane T02 -> T03 : None distingue une carte inconnue d'un solde nul."""
+
+    id_uart: str
+    solde_centimes: int | None
+
+    @property
+    def compte_connu(self) -> bool:
+        return self.solde_centimes is not None
+
+
+@dataclass(frozen=True)
 class DemandePaiement:
     """Un montant deja calcule par T04, pour une tentative de paiement."""
 

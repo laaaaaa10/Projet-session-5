@@ -5,6 +5,8 @@ from threading import RLock
 import time
 
 from api.paiements import ModuleT04
+from api.identification import ModuleT03
+from application.acces_identification import AccesIdentification
 from modeles.comptes import (
     ConflitTransaction, DemandePaiement, PaiementEnCours, ResultatOperation,
     TypeOperation, valider_id_transaction,
@@ -12,9 +14,10 @@ from modeles.comptes import (
 
 
 class Borne:
-    def __init__(self, comptes, affichage):
+    def __init__(self, comptes, affichage, *, identification: AccesIdentification | None = None):
         self.comptes = comptes
         self.affichage = affichage
+        self._identification = identification
         self._demande = None
         self._resultats = []
         self._verrou = RLock()
@@ -88,6 +91,8 @@ class Borne:
             if self._demande is None:
                 compte = self.comptes.consulter_compte(evenement.identifiant)
                 self.affichage.compte(evenement.identifiant, compte)
+                if self._identification is not None:
+                    self._identification._publier(evenement.identifiant, compte)
                 return
             demande = self._demande
             # Si le stockage echoue, l'exception remonte et l'ID reste disponible
@@ -98,10 +103,11 @@ class Borne:
             self._demande = None
             self._publier(resultat)
 
-    def executer(self, lecteur, *, un_paiement=False, t04: ModuleT04 | None = None):
-        """Une seule boucle RFID ; T04 peut traiter ses resultats a chaque passage."""
-        if un_paiement and t04 is not None:
-            raise ValueError("Le test d'un paiement et le module T04 ne partagent pas la file de resultats")
+    def executer(self, lecteur, *, un_paiement=False,
+                 t03: ModuleT03 | None = None, t04: ModuleT04 | None = None):
+        """Une seule boucle RFID ; les modules branches recoivent leur traitement."""
+        if un_paiement and (t03 is not None or t04 is not None):
+            raise ValueError("Le test d'un paiement se lance sans les modules T03 et T04")
         while True:
             if un_paiement and self._resultats:
                 return
@@ -109,6 +115,8 @@ class Borne:
                 self.traiter_evenement(evenement)
                 if un_paiement and self._resultats:
                     return
+            if t03 is not None:
+                t03.actualiser()
             if t04 is not None:
                 t04.actualiser()
             time.sleep(0.002)

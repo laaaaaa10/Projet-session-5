@@ -9,7 +9,8 @@ Un badge seul consulte le compte. T04 doit demander un paiement explicitement.
 import sys
 
 from application.borne import Borne
-from application import integration_t04
+from application.acces_identification import AccesIdentification
+from application import integration_t03, integration_t04
 from interface.console_borne import ConsoleBorne
 from modules.gestion_comptes import ServiceComptes
 from modules import lecteur_nfc_rfid
@@ -22,12 +23,16 @@ def main(argv=None, *, dossier_donnees=DOSSIER_ACTIF):
         comptes = ServiceComptes(DepotComptesCSV(dossier_donnees))
         console = ConsoleBorne()
         console.demarrage(comptes.lister_comptes())
-        borne = Borne(comptes, console)
+        identification = AccesIdentification(comptes)
+        t03 = integration_t03.creer_module_t03(identification)
+        borne = Borne(
+            comptes, console, identification=identification if t03 is not None else None,
+        )
         t04 = integration_t04.creer_module_t04(borne)
         with lecteur_nfc_rfid.LecteurRFID(
             port=args.port, gpio=args.gpio, chip=args.chip, delai_ms=args.delai_ms,
         ) as lecteur:
-            borne.executer(lecteur, t04=t04)
+            borne.executer(lecteur, t03=t03, t04=t04)
     except KeyboardInterrupt:
         print("\nProgramme termine.")
         return 0
