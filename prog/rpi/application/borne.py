@@ -104,6 +104,16 @@ class Borne:
             self._demande = None
             self._publier(resultat)
 
+    def actualiser(self, lecteur, *, t03=None, t04=None, t13=None, un_paiement=False):
+        """Un passage seulement ; utilisable par une boucle ou un timer de travail."""
+        for evenement in lecteur.lire():
+            self.traiter_evenement(evenement)
+            if un_paiement and self._resultats:
+                return
+        for module in (t03, t04, t13):
+            if module is not None:
+                module.actualiser()
+
     def executer(self, lecteur, *, un_paiement=False,
                  t03: ModuleT03 | None = None, t04: ModuleT04 | None = None,
                  t13: ModuleT13 | None = None):
@@ -113,14 +123,7 @@ class Borne:
         while True:
             if un_paiement and self._resultats:
                 return
-            for evenement in lecteur.lire():
-                self.traiter_evenement(evenement)
-                if un_paiement and self._resultats:
-                    return
-            if t03 is not None:
-                t03.actualiser()
-            if t04 is not None:
-                t04.actualiser()
-            if t13 is not None:
-                t13.actualiser()
+            self.actualiser(lecteur, t03=t03, t04=t04, t13=t13, un_paiement=un_paiement)
+            if un_paiement and self._resultats:
+                return
             time.sleep(0.002)

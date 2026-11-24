@@ -32,6 +32,8 @@ La création de comptes par interface reste hors de cette version.
 | `modules/gestion_comptes.py` | Consultation, crédit, débit intégral et détection des doublons |
 | `stockage/comptes_csv.py` | Lecture/écriture CSV, verrou et récupération des soldes |
 | `interface/console_borne.py` | Messages console |
+| `interface/qt/pont_t02.py` | Raccordement graphique optionnel ; lecteur et fichiers dans un thread de travail |
+| `interface/qt/fenetre_demo.py` | Banc graphique pour les cartes, paiements et crédits |
 | `modules/lecteur_nfc_rfid.py` | UART, RNG, checksum et réarmement existants |
 | `outils/simuler_t04.py` | Demande de test avec le vrai lecteur |
 | `outils/comptes.py` | Consultation et crédit depuis le terminal |
@@ -53,6 +55,18 @@ Aucun protocole CAN/MQTT de paiement n'est inventé ici.
 L'accès consultation/crédit de T13 est décrit dans
 [INTERFACE_T13_T02.md](INTERFACE_T13_T02.md). Sa fabrique retourne `None`
 jusqu'au branchement du vrai module de supervision.
+
+Le raccordement PyQt6, les commandes de lancement et les signaux destinés au
+futur écran sont décrits dans [INTERFACE_GRAPHIQUE_T02.md](INTERFACE_GRAPHIQUE_T02.md).
+La fenêtre de démonstration démarre sur PC avec :
+
+```bash
+python3 -B prog/rpi/outils/demo_interface_graphique.py
+```
+
+Elle utilise des comptes temporaires et des badges simulés par défaut. Le mode
+`--lecteur-reel` permet l'essai sur le Pi. PyQt6 est nécessaire pour cet outil ;
+le programme console et les API existantes restent indépendants de Qt.
 
 ## Données persistantes
 
@@ -125,6 +139,10 @@ python3 -B -m unittest discover -s prog/tests -p 'test_*.py' -v
 Les suites RFID et comptes exercent les vrais modules, avec l'UART et le GPIO
 simulés. Chaque test écrit dans un dossier temporaire : les soldes actifs du Pi
 ne sont jamais utilisés par les tests.
+
+Avec PyQt6 installé, `test_interface_graphique.py` vérifie aussi la fenêtre,
+les vrais échanges entre threads Qt et la libération du lecteur. Sans PyQt6,
+cette seule suite optionnelle est ignorée, avec la mention `skipped`.
 
 La suite `test_interface_t04.py` vérifie aussi le contrat public et le branchement
 dans le vrai `main.py`, avec un client T04 d'exemple. Une démonstration sans

@@ -99,8 +99,10 @@ ses passages. Les opérations de stockage sont synchrones et peuvent allonger
 un passage ; ce n'est pas une garantie de temps réel.
 
 Les méthodes de paiement protègent leur état par un verrou. **Un seul
-consommateur, T04, vide la file de résultats.** L'écran doit recevoir les
-résultats relayés par T04 plutôt que vider lui aussi cette file. Le simulateur
+consommateur, T04, vide la file de résultats.** L'écran reçoit une copie des
+résultats relayée par T04 ou par l'adaptateur d'affichage Qt ; il ne vide pas
+lui aussi cette file. Voir [INTERFACE_GRAPHIQUE_T02.md](INTERFACE_GRAPHIQUE_T02.md)
+pour le raccordement et la séparation des contrôleurs et des pages Qt. Le simulateur
 `simuler_t04.py` utilise cette file pour son propre essai et se lance séparément.
 
 ## Demande et résultat
