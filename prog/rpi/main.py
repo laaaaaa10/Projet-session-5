@@ -8,22 +8,36 @@ Options : --port /dev/ttyAMA0 --gpio 17 --chip 0 --delai-ms 500
 import sys
 import time
 
-from modules import lecteur_nfc_rfid
+from modules import gestion_comptes, lecteur_nfc_rfid
 
 
-def traiter_badge(identifiant):
-    """Point d'entree de la logique de borne pour une lecture acceptee.
+def traiter_badge(identifiant, comptes):
+    """Cherche le compte d'une lecture valide et affiche son solde.
 
-    La validation du compte et la transaction seront ajoutees ici.
-    Cet affichage ne donne aucune autorisation et ne commande aucun actionneur.
+    Retourne le compte reconnu, ou None si le badge est inconnu.
+    Cette etape ne debite rien et ne commande aucun actionneur.
     """
-    print(f"BORNE | Identifiant recu : {identifiant}", flush=True)
+    numero = lecteur_nfc_rfid.numero_badge(identifiant)
+    badge = f"Numero de badge : {numero} | ID UART : {identifiant}"
+    compte = comptes.get(identifiant)
+    if compte is None:
+        print(f"BORNE | REFUSE | {badge} | Compte inconnu", flush=True)
+        return None
+
+    print(
+        f"BORNE | COMPTE RECONNU | {compte.nom} | {badge}"
+        f" | Solde : {compte.solde_affiche}",
+        flush=True,
+    )
+    return compte
 
 
 def main(argv=None):
     args = lecteur_nfc_rfid.lire_arguments(argv, description=__doc__)
     origine = time.monotonic()
     try:
+        comptes = gestion_comptes.charger_comptes()
+        print(f"BORNE | {len(comptes)} comptes charges.", flush=True)
         with lecteur_nfc_rfid.LecteurRFID(
             port=args.port, gpio=args.gpio, chip=args.chip, delai_ms=args.delai_ms,
         ) as lecteur:
@@ -31,7 +45,7 @@ def main(argv=None):
                 for evenement in lecteur.lire():
                     print(f"[{time.monotonic() - origine:8.3f} s] {evenement}", flush=True)
                     if evenement.type == "ACCEPTE":
-                        traiter_badge(evenement.identifiant)
+                        traiter_badge(evenement.identifiant, comptes)
 
                 # TODO : ajouter ici les traitements non bloquants du CAN,
                 # du MQTT, de l'ecran et des autres modules une fois initialises.
