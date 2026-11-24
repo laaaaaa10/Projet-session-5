@@ -21,12 +21,12 @@
 | 8 | `ecl 3 9 9 9` | REFUSE (niveau hors plage) | `niveau=3 -> REFUSE` | Réussi |
 | 9 | `del 2 255 255 0 1`, puis `image` ×3 | DEL 3 alterne entre éteinte et jaune | DEL 3 : 0,0,0 ; 0,0,0 ; 255,255,0 | Réussi (alternance observée ; durée non mesurée) |
 | 10 | `hb on`, `hb off`, `hb on`, `etat` | Perte détectée : 7 places INCONNUE ; RPi de nouveau EN LIGNE ; éclairage conservé | `RPi : EN LIGNE` ; places 1 à 7 INCONNUE ; éclairage 200,200,200 | Réussi |
-| 11 | `del 3 255 0 0` après le retour du RPi | Place 3 redevient valide, les autres restent INCONNUE | Non exécuté (faute de frappe : `de 3 …`) | À refaire |
-| 12 | RESET, puis `etat` | Places « initiale », éclairage 64,64,64 | Non exécuté | À faire |
+| 11 | `del 3 255 0 0` après le retour du RPi, puis `etat` | Place 3 redevient valide, les autres restent INCONNUE | `seq=8 place=3 -> APPLIQUE` ; place 3 « valide » 255,0,0 ; places 1, 2, 4 à 7 INCONNUE | Réussi |
+| 12 | RESET, puis `etat` | Places « initiale », éclairage 64,64,64, RPi hors ligne, compteurs remis à zéro | 7 places « initiale » 0,0,0 ; éclairage 64,64,64 ; `RPi : hors ligne` ; T07 0/0/0 ; CAN 87 trames (heartbeats depuis le reset) | Réussi |
 
 **Compteurs à la fin :**
-- T07 : 3 appliquées, 4 refusées, 2 ignorées, 0 réponse non envoyée. Cohérent avec les essais 1 à 10.
-- CAN : 927 trames reçues pour 927 envoyées ; 0 perdue en réception, 0 refusée ou annulée en émission.
+- T07 : 4 appliquées, 4 refusées, 2 ignorées, 0 réponse non envoyée. Cohérent avec les essais 1 à 11.
+- CAN : 1833 trames reçues pour 1833 envoyées ; 0 perdue en réception, 0 refusée ou annulée en émission.
 
 ## Journal brut (PuTTY)
 
@@ -72,10 +72,39 @@ RPi : EN LIGNE | heartbeat simule : oui | CAN loopback
   eclairage niveau 0 : R=200 V=200 B=200
 T07 : 3 appliquees, 4 refusees, 2 ignorees, 0 reponses non envoyees
 CAN : 927 recues, 927 envoyees, 0 perdues RX, 0 refusees TX, 0 annulees TX
+del 3 255 0 0
+-> 0x340 DEL_PLACE_CMD        DLC 6 : 08 03 FF 00 00 00
+<- 0x341 DEL_BAS_ETAT : seq=8 place=3 -> APPLIQUE
+etat
+RPi : EN LIGNE | heartbeat simule : oui | CAN loopback
+  place  1 (DEL  1) : INCONNUE  R=  0 V=  0 B=  0  fixe
+  place  2 (DEL  3) : INCONNUE  R=255 V=255 B=  0  clignote
+  place  3 (DEL  5) : valide    R=255 V=  0 B=  0  fixe
+  place  4 (DEL  7) : INCONNUE  R=  0 V=  0 B=  0  fixe
+  place  5 (DEL  9) : INCONNUE  R=  0 V=  0 B=  0  fixe
+  place  6 (DEL 11) : INCONNUE  R=  0 V=  0 B=  0  fixe
+  place  7 (DEL 13) : INCONNUE  R=  0 V=  0 B=  0  fixe
+  eclairage niveau 0 : R=200 V=200 B=200
+T07 : 4 appliquees, 4 refusees, 2 ignorees, 0 reponses non envoyees
+CAN : 1833 recues, 1833 envoyees, 0 perdues RX, 0 refusees TX, 0 annulees TX
+(RESET, réouverture de PuTTY)
+=== Essai T07 (STM32 BAS) ===
+CAN en loopback. Taper aide.
+etat
+RPi : hors ligne | heartbeat simule : non | CAN loopback
+  place  1 (DEL  1) : initiale  R=  0 V=  0 B=  0  fixe
+  place  2 (DEL  3) : initiale  R=  0 V=  0 B=  0  fixe
+  place  3 (DEL  5) : initiale  R=  0 V=  0 B=  0  fixe
+  place  4 (DEL  7) : initiale  R=  0 V=  0 B=  0  fixe
+  place  5 (DEL  9) : initiale  R=  0 V=  0 B=  0  fixe
+  place  6 (DEL 11) : initiale  R=  0 V=  0 B=  0  fixe
+  place  7 (DEL 13) : initiale  R=  0 V=  0 B=  0  fixe
+  eclairage niveau 0 : R=64 V=64 B=64
+T07 : 0 appliquees, 0 refusees, 0 ignorees, 0 reponses non envoyees
+CAN : 87 recues, 87 envoyees, 0 perdues RX, 0 refusees TX, 0 annulees TX
 ```
 
 ## Reste à vérifier
 
-- Essais 11 et 12 ci-dessus.
 - Délai de réponse ≤ 500 ms : non mesuré. À mesurer sur le vrai bus, avec l'analyseur logique ou les horodatages du RPi.
 - DEL réelles (couleurs, positions, clignotement à l'œil, 5 V au blanc maximal) : dès que le PCB-11 sera reçu (balayage `ESSAI_BALAYAGE_DEL 1`).
