@@ -69,6 +69,14 @@ class ConflitTransaction(ValueError):
     """Un ID deja utilise ne peut pas designer une autre operation."""
 
 
+class PaiementEnCours(RuntimeError):
+    """La borne attend deja une carte pour une autre demande."""
+
+
+class ErreurStockage(RuntimeError):
+    """Resultat technique incertain : reprendre avec le meme ID de transaction."""
+
+
 @dataclass(frozen=True)
 class ResultatOperation:
     id_transaction: str

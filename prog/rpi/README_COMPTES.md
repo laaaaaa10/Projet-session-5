@@ -20,6 +20,8 @@ La création de comptes par interface reste hors de cette version.
 | --- | --- |
 | `main.py` | Assemblage, lancement et fermeture du lecteur |
 | `application/borne.py` | Boucle, demande en attente, transmission des résultats à T04 |
+| `api/paiements.py` | Contrat public de paiement et types importables par T04 |
+| `application/integration_t04.py` | Point de branchement du futur module T04 |
 | `modeles/comptes.py` | Compte, demande, résultat, statuts et validation des paramètres |
 | `modules/gestion_comptes.py` | Consultation, crédit, débit intégral et détection des doublons |
 | `stockage/comptes_csv.py` | Lecture/écriture CSV, verrou et récupération des soldes |
@@ -27,12 +29,16 @@ La création de comptes par interface reste hors de cette version.
 | `modules/lecteur_nfc_rfid.py` | UART, RNG, checksum et réarmement existants |
 | `outils/simuler_t04.py` | Demande de test avec le vrai lecteur |
 | `outils/comptes.py` | Consultation et crédit depuis le terminal |
+| `exemples/client_t04.py` | Exemple de client utilisant seulement l'API publique |
+| `outils/demo_interface_t04.py` | Démonstration sur PC Linux, dans des données temporaires |
 
 Le lecteur RFID ne connaît ni les comptes ni les tarifs. Le service de comptes
 ne connaît ni GPIO, ni UART, ni l'écran. Les modules métier n'affichent rien.
 L'interface Python est détaillée dans [INTERFACE_T04_T02.md](INTERFACE_T04_T02.md).
-Le code réel de T04 n'est pas présent dans cette branche : le raccordement de
-son appelant reste à faire. Aucun protocole CAN/MQTT de paiement n'est inventé ici.
+Le code réel de T04 n'est pas présent dans cette branche. Le point de branchement
+est prêt dans `application/integration_t04.py` ; il suffit d'y retourner le futur
+module, qui reçoit l'API de paiement et fournit `actualiser()`.
+Aucun protocole CAN/MQTT de paiement n'est inventé ici.
 
 ## Données persistantes
 
@@ -100,6 +106,14 @@ python3 -B -m unittest discover -s prog/tests -p 'test_*.py' -v
 Les suites RFID et comptes exercent les vrais modules, avec l'UART et le GPIO
 simulés. Chaque test écrit dans un dossier temporaire : les soldes actifs du Pi
 ne sont jamais utilisés par les tests.
+
+La suite `test_interface_t04.py` vérifie aussi le contrat public et le branchement
+dans le vrai `main.py`, avec un client T04 d'exemple. Une démonstration sans
+matériel, utilisable sur le PC Linux ou le Pi sans sudo, est disponible :
+
+```bash
+python3 -B prog/rpi/outils/demo_interface_t04.py
+```
 
 Couverture : les trois cartes, absence de débit à la simple lecture, paiements
 et crédits, solde insuffisant, doublons après redémarrage, conflits d'identifiants,

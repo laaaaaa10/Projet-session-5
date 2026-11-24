@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from application.borne import Borne
 from interface.console_borne import ConsoleBorne
-from modeles.comptes import DemandePaiement
+from api.paiements import DemandePaiement
 from modules.gestion_comptes import ServiceComptes
 from modules import lecteur_nfc_rfid as rfid
 from stockage.comptes_csv import DepotComptesCSV, DOSSIER_ACTIF

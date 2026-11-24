@@ -1,140 +1,206 @@
-# Interface locale T04 → T02
+# Interface T04 → T02 — version 1
 
-T04 calcule le montant et décide quand demander un paiement. T02 identifie le
-compte, contrôle son solde, enregistre l'opération et retourne son résultat.
-T02 ne calcule aucun tarif et ne commande aucun actionneur.
+L'interface logicielle est prête. T04 fournit **un ID de tentative et un montant
+en centimes**, puis récupère un résultat. T02 s'occupe du lecteur, des comptes
+et de l'enregistrement du paiement.
 
-Cette interface est un contrat Python utilisable dans le même programme.
-La branche actuelle ne contient pas l'implémentation de facturation T04 :
-son branchement réel reste à réaliser. Le simulateur teste déjà cette interface.
+Ce contrat est local au même programme Python. Il ne définit pas un protocole
+réseau. Le calcul des tarifs et la gestion des factures restent dans T04.
 
-## Entrée et sortie
+## Ce que le responsable T04 doit utiliser
+
+Tous les imports du contrat viennent d'un seul module :
 
 ```python
-from modeles.comptes import DemandePaiement, StatutOperation
-
-# borne est l'instance Borne déjà créée pour le lecteur.
-# Le montant vient du calcul de T04, jamais du badge.
-borne.demander_paiement(DemandePaiement(
-    id_transaction="facture-42-tentative-1",
-    montant_centimes=550,
-))
-
-# À appeler dans le traitement périodique de T04, après les lectures RFID.
-for resultat in borne.lire_resultats_paiement():
-    if resultat.statut == StatutOperation.PAIE:
-        # T04 enregistre la facture payée une seule fois par id_transaction.
-        pass
-    else:
-        # Afficher le refus ou proposer une nouvelle tentative.
-        pass
+from api.paiements import (
+    DemandePaiement, InterfacePaiement, StatutOperation,
+    PaiementEnCours, ConflitTransaction, ErreurStockage,
+)
 ```
 
-La boucle RFID existante se trouve dans `Borne.executer()`.
-Pour l'intégration, le contrôleur commun peut appeler
-`Borne.traiter_evenement(evenement)` pour les événements de
-`LecteurRFID.lire()`, puis les traitements périodiques de T04.
-Il faut conserver un seul propriétaire du lecteur ; ne pas lancer deux boucles
-RFID indépendantes. Les méthodes de la borne protègent la demande en attente
-par un verrou pour les appels provenant d'un autre fil d'exécution.
+L'objet `paiements` est **fourni par la borne** au constructeur de T04.
+`InterfacePaiement` décrit ses méthodes ; ce n'est pas un service à instancier.
+T04 n'a pas à importer le lecteur, ouvrir le GPIO, charger un CSV ou calculer
+l'ID de la carte.
 
-`demander_paiement()` retourne immédiatement après vérification du stockage.
-Elle n'attend pas qu'un badge arrive. Une seule demande peut attendre un badge :
-une autre demande déclenche `PaiementEnCours`. Répéter la même demande en
-attente n'en crée pas une seconde. Un montant différent pour le même ID
-déclenche `ConflitTransaction`.
+| Méthode sur `paiements` | Retour | Utilisation |
+| --- | --- | --- |
+| `demander_paiement(DemandePaiement(id, montant))` | `None` | Demander le paiement ou rejouer une demande connue |
+| `lire_resultats_paiement()` | Liste de `ResultatOperation` | Récupérer et retirer les notifications disponibles |
+| `retrouver_resultat_paiement(id)` | Résultat ou `None` | Relire un résultat enregistré, notamment après redémarrage |
+| `annuler_paiement(id)` | Booléen | Annuler une attente de carte encore non terminée |
 
-Si l'ID correspond déjà à une opération terminée, son résultat est remis dans
-la file de sortie sans demander un nouveau badge. Le montant et le type doivent
-correspondre à l'opération enregistrée.
+`retrouver_resultat_paiement()` ne vide pas la file et ne débite rien.
+`None` signifie « aucun résultat enregistré pour cet ID », pas « refusé ».
+Une demande inconnue, en attente ou annulée peut donc retourner `None`.
 
-`lire_resultats_paiement()` retourne une liste et vide cette file en mémoire.
-Si T04 perd une réponse ou redémarre, il peut redemander avec le même ID :
-le résultat persistant reste dans le journal. T04 doit conserver ses propres
-IDs de tentative et les associer à ses factures.
+## Exemple côté T04
 
-## Résultat
+Un exemple complet, importable et testé se trouve dans
+[`exemples/client_t04.py`](exemples/client_t04.py). Il demande un paiement,
+lit ses notifications et ignore les notifications répétées dans le même
+processus. Il ne calcule aucun tarif et ne commande aucun actionneur.
 
-| Champ | Sens |
+Le futur module doit suivre cette forme :
+
+```python
+from api.paiements import DemandePaiement, InterfacePaiement, StatutOperation
+
+class FacturationT04:
+    def __init__(self, paiements: InterfacePaiement):
+        self.paiements = paiements
+        # Charger ici les factures et les tentatives que T04 conserve.
+
+    def payer_facture(self, id_transaction: str, montant_centimes: int):
+        # Conserver cet ID avec la facture AVANT de soumettre la demande.
+        self.paiements.demander_paiement(
+            DemandePaiement(id_transaction, montant_centimes)
+        )
+
+    def actualiser(self):
+        for resultat in self.paiements.lire_resultats_paiement():
+            if resultat.statut == StatutOperation.PAIE:
+                # Enregistrer la facture payée, une seule fois par transaction.
+                pass
+            else:
+                # Enregistrer/afficher le refus pour cette tentative.
+                pass
+```
+
+Ce bloc montre les points à compléter dans T04 ; le client d'exemple fonctionne
+déjà pour les démonstrations. Dans le vrai T04, la déduplication et l'état des
+factures doivent être **persistants**. Le dictionnaire du client d'exemple ne
+suffit pas à dédupliquer les actions de T04 après son propre redémarrage.
+
+## Un seul point à modifier quand T04 sera prêt
+
+Dans [`application/integration_t04.py`](application/integration_t04.py),
+remplacer le `return None` par la création du vrai module. Par exemple,
+si le collègue choisit le fichier `modules/facturation.py` et la classe
+`FacturationT04` :
+
+```python
+def creer_module_t04(paiements):
+    from modules.facturation import FacturationT04
+    return FacturationT04(paiements=paiements)
+```
+
+Le programme principal appelle déjà cette fonction. La boucle de la borne
+appelle déjà `t04.actualiser()` après les événements RFID de chaque passage.
+**Aucune nouvelle boucle RFID et aucune modification supplémentaire de
+`main.py` ne sont nécessaires.**
+
+Pour l'instant, la fonction retourne `None` : aucun faux T04 n'est activé et
+aucune demande automatique de paiement n'est créée.
+
+`actualiser()` doit rendre la main rapidement : pas de `input()`, d'attente de
+carte, de `sleep()` ou de boucle infinie dedans. La borne attend déjà 2 ms entre
+ses passages. Les opérations de stockage sont synchrones et peuvent allonger
+un passage ; ce n'est pas une garantie de temps réel.
+
+Les méthodes de paiement protègent leur état par un verrou. **Un seul
+consommateur, T04, vide la file de résultats.** L'écran doit recevoir les
+résultats relayés par T04 plutôt que vider lui aussi cette file. Le simulateur
+`simuler_t04.py` utilise cette file pour son propre essai et se lance séparément.
+
+## Demande et résultat
+
+L'ID contient de 1 à 128 caractères. Le premier est une lettre ASCII ou un
+chiffre ; les suivants peuvent aussi être `_`, `.`, `:` ou `-`.
+Exemple : `facture-42-tentative-1`.
+
+Le montant est un entier en centimes, positif ou nul : `550` = 5,50 $.
+Les flottants et booléens sont rejetés. Un paiement nul reste soumis à la
+présentation d'une carte associée à un compte.
+
+| Champ du résultat | Sens |
 | --- | --- |
 | `id_transaction` | ID de tentative fourni par T04 |
 | `date_utc` | Date UTC du résultat initial |
-| `type_operation` | `TypeOperation.PAIEMENT` |
+| `type_operation` | `PAIEMENT` pour cette API |
 | `id_uart` | ID complet de la carte utilisée |
 | `montant_centimes` | Montant demandé |
-| `statut` | `PAIE`, `COMPTE_INCONNU` ou `SOLDE_INSUFFISANT` |
-| `solde_avant_centimes` | Solde avant cette opération, ou `None` si compte inconnu |
-| `solde_apres_centimes` | Solde après cette opération, ou `None` si compte inconnu |
-| `deja_traitee` | `True` si le résultat est une répétition d'une opération enregistrée |
+| `statut` | `StatutOperation.PAIE`, `COMPTE_INCONNU` ou `SOLDE_INSUFFISANT` |
+| `solde_avant_centimes` | Solde avant l'opération, ou `None` si compte inconnu |
+| `solde_apres_centimes` | Solde après l'opération, ou `None` si compte inconnu |
+| `deja_traitee` | `True` pour un résultat retrouvé ou retransmis |
 
-Sur un résultat répété, les soldes sont ceux du reçu initial ; ils ne constituent
-pas une nouvelle consultation du solde courant.
+Seul `PAIE` confirme le paiement. `ACCEPTE` est un événement du lecteur RFID
+qui indique uniquement que sa trame est valide.
 
-Seul `PAIE` confirme un paiement. `ACCEPTE` appartient au lecteur RFID et
-confirme uniquement la validité d'une trame. Une carte inconnue ou un solde
-insuffisant termine la tentative avec un refus, sans modifier les soldes.
-La borne repasse ensuite en consultation tant que T04 n'a pas soumis une autre
-demande. Pas de paiement partiel ni de cumul de plusieurs cartes.
+Un refus termine la tentative sans débit partiel. Passer ensuite une autre
+carte consulte son compte tant que T04 n'a pas demandé une autre tentative.
+Les soldes d'un résultat retransmis sont ceux du reçu initial, pas nécessairement
+les soldes courants après d'autres opérations.
 
-## Identifiants et reprises
+## Erreurs, retransmissions et annulation
 
-L'ID est une chaîne de 1 à 128 caractères. Le premier est une lettre ASCII ou un
-chiffre ; les suivants peuvent aussi être `_`, `.`, `:` ou `-`.
-Le montant est un `int` en centimes, positif ou nul, jamais un `float`.
+| Situation | Comportement à respecter dans T04 |
+| --- | --- |
+| Une autre demande attend une carte | `PaiementEnCours` : conserver la nouvelle demande pour plus tard |
+| Même ID réutilisé avec d'autres données | `ConflitTransaction` : corriger l'appel, ne pas ignorer l'erreur |
+| Paramètre mal formé | `ValueError` (ou `TypeError` si l'objet demande n'est pas du bon type) |
+| Stockage indisponible/incohérent | `ErreurStockage` : ne pas conclure « refusé », reprendre le même ID |
+| Réponse perdue | Relire le résultat ou retransmettre exactement la même demande |
+| Refus reçu puis nouvel essai volontaire | Créer un nouvel ID de tentative |
+| Paiement reçu plusieurs fois | Appliquer les effets T04 une seule fois pour cet ID |
 
-- Réponse perdue ou erreur de stockage : reprendre **le même ID** et le même montant.
-- Refus reçu, puis essai d'une autre carte ou après crédit : utiliser un **nouvel ID de tentative**.
-- Paiement confirmé : T04 marque la facture payée ; il ne lance pas une autre
-  tentative pour cette même facture.
+La déduplication T02 porte sur les **IDs de transaction**, pas les factures :
+deux IDs distincts peuvent produire deux débits. T04 doit conserver l'association
+entre facture et tentative, et ne pas demander de nouveau paiement pour une
+facture déjà payée.
 
-La protection de T02 porte sur les IDs de transaction, pas sur les numéros
-de facture : deux IDs différents constituent deux opérations différentes.
-T04 doit également dédupliquer ses effets en aval (facture payée, demande de
-retrait) lorsqu'il reçoit plusieurs fois le même résultat.
+Les paiements et refus terminés sont persistants. La file de notifications et
+les attentes sont en mémoire. Après redémarrage, T04 retrouve un résultat avec
+`retrouver_resultat_paiement(id)`, ou soumet de nouveau sa demande avec le
+même ID et le même montant. Une retransmission d'un résultat ancien ne remplace
+pas une autre demande actuellement en attente.
 
-Une erreur de stockage remonte comme `ErreurStockage`, sans résultat de
-paiement annoncé. Elle ne prouve pas que le débit n'a pas été enregistré :
-le journal peut déjà contenir l'opération. Ne pas remplacer l'ID pour contourner
-cette erreur. Un ID réutilisé avec un autre contenu provoque
-`ConflitTransaction`, sans nouveau débit.
+`annuler_paiement(id)` retourne `True` uniquement si cette attente a été annulée.
+`False` signifie qu'elle n'attendait plus, n'était pas l'attente courante, ou
+était déjà enregistrée dans le journal. Aucun remboursement n'est effectué.
+Après une erreur d'écriture, la borne consulte aussi le journal avant
+d'annoncer une annulation ; si le paiement était enregistré, elle renvoie son
+résultat au lieu de le masquer.
 
-## Annulation et redémarrage
+Une erreur de stockage ne prouve pas l'absence de débit. Si le journal a été
+écrit avant l'erreur, reprendre le même ID permet de retrouver son résultat
+sans nouvelle carte et sans second débit. Un ID de crédit n'est pas un ID de
+paiement : sa recherche par cette API provoque `ConflitTransaction`.
 
-```python
-annule = borne.annuler_paiement("facture-42-tentative-1")
+L'annulation d'une attente n'est pas journalisée et ne réserve pas définitivement
+son ID. T04 doit arrêter ses retransmissions après annulation et décider de
+l'état de ses attentes après redémarrage.
+
+## Essai immédiat sans Raspberry Pi
+
+Sur le PC Linux, depuis la racine du dépôt, sans sudo :
+
+```bash
+python3 -B prog/rpi/outils/demo_interface_t04.py
+python3 -B -m unittest discover -s prog/tests -p 'test_*.py' -v
 ```
 
-Retourne `True` uniquement si cette demande attendait encore un badge.
-Une demande terminée n'est ni annulée ni remboursée par cette méthode.
-L'annulation d'une attente ne réserve pas définitivement son ID dans le journal ;
-l'appelant doit donc arrêter ses retransmissions après annulation.
-Les attentes et annulations restent en mémoire : après redémarrage, T04 décide
-s'il doit soumettre de nouveau une attente. Les résultats terminés sont persistants.
+La démonstration utilise le vrai stockage et le vrai service, dans un dossier
+temporaire. Seuls les événements RFID sont simulés. Elle montre :
 
-## Accès métier sans lecteur
+1. Jason paie 5,50 $ : 20,00 $ → 14,50 $.
+2. Lucia refuse 25,00 $ avec son solde de 20,00 $.
+3. La carte inconnue est refusée.
+4. Une nouvelle instance de borne retrouve le paiement de Jason sans le répéter.
 
-Pour un module local qui possède déjà l'ID UART validé :
+La démonstration ne touche pas les comptes actifs. Le contrat et le client
+d'exemple sont importables sans bibliothèque matérielle ni `fcntl` ; le
+stockage réel et cette démonstration nécessitent Linux/Python 3.10+.
 
-```python
-from modules.gestion_comptes import ServiceComptes
-from stockage.comptes_csv import DepotComptesCSV
+Pour l'essai avec les vraies cartes, le simulateur existant reste disponible.
+Voir [README_COMPTES.md](README_COMPTES.md).
 
-comptes = ServiceComptes(DepotComptesCSV())
-compte = comptes.consulter_compte("11008827F9")
-resultat = comptes.payer("facture-42-tentative-1", "11008827F9", 550)
-```
+## Références
 
-Le service est une API interne de confiance : il ne prouve pas à lui seul la
-présence physique de la carte. La borne appelle cette API seulement pour une
-lecture `ACCEPTE`. `crediter(id_transaction, id_uart, montant_centimes)` suit
-les mêmes règles de doublons, avec un montant strictement positif et le statut
-`CREDITE`. Le crédit est destiné à la gestion locale des comptes de démonstration.
-
-## Références du projet
-
-- Base de cette évolution : commit `ab43d56`, branche `integration-rfid`.
-- Répartition T04/facturation confirmée par l'utilisateur.
-- Implémentation : `modeles/comptes.py`, `application/borne.py`,
-  `modules/gestion_comptes.py` et `stockage/comptes_csv.py`.
-- Vérification : `../tests/test_comptes_transactions.py` et
-  `../tests/test_rfid_integration.py`.
+- Base : commit `ec95816`, branche `integration-rfid`, confirmée sur le dépôt.
+- Contrat : `api/paiements.py` ; implémentation : `application/borne.py`.
+- Branchement : `application/integration_t04.py` et `main.py`.
+- Vérification : `../tests/test_interface_t04.py` avec les suites comptes et RFID.
+- Répartition des responsabilités : T04 calcule la facturation, comme confirmé
+  par l'utilisateur ; T02 gère le paiement.

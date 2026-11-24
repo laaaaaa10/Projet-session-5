@@ -15,7 +15,7 @@ from pathlib import Path
 import tempfile
 
 from modeles.comptes import (
-    Compte, ResultatOperation, StatutOperation, TypeOperation,
+    Compte, ErreurStockage, ResultatOperation, StatutOperation, TypeOperation,
     valider_id_transaction, valider_id_uart, valider_montant,
 )
 
@@ -28,10 +28,6 @@ CHAMPS_OPERATIONS = [
     "id_transaction", "date_utc", "type_operation", "id_uart", "montant_centimes",
     "statut", "solde_avant_centimes", "solde_apres_centimes",
 ]
-
-
-class ErreurStockage(RuntimeError):
-    """Stockage indisponible/incoherent : ne pas annoncer un paiement reussi."""
 
 
 def _lire_csv(chemin, champs):
