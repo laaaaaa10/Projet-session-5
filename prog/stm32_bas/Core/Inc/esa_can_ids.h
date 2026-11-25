@@ -65,6 +65,20 @@
 #define CAN_ID_ECLAIRAGE_HAUT_ETAT     0x351u
 #define CAN_ID_ECLAIRAGE_BORNE_ETAT    0x352u
 
+/* Répartition des DEL décidée par l'équipe le 2026-11-25 : les réponses gardent
+ * les identifiants du protocole v1.6 selon la FONCTION, pas selon le nœud qui
+ * les envoie. Les noms ci-dessous sont ceux à utiliser dans le code T07.
+ *   0x341 : places 1 à 7     → envoyé par le STM32 BAS
+ *   0x342 : places 8 à 14    → envoyé par le STM32 BORNE (et non plus le HAUT)
+ *   0x350 : éclairage niv. 0 → envoyé par le STM32 BAS, toujours « refusé » (aucune DEL)
+ *   0x351 : éclairage niv. 1 → envoyé par le STM32 BORNE (et non plus le HAUT)
+ *   0x352 : éclairage niv. 2 → envoyé par le STM32 HAUT (et non plus la BORNE) */
+#define CAN_ID_DEL_PLACES_1_7_ETAT     CAN_ID_DEL_BAS_ETAT
+#define CAN_ID_DEL_PLACES_8_14_ETAT    CAN_ID_DEL_HAUT_ETAT
+#define CAN_ID_ECLAIRAGE_NIV0_ETAT     CAN_ID_ECLAIRAGE_BAS_ETAT
+#define CAN_ID_ECLAIRAGE_NIV1_ETAT     CAN_ID_ECLAIRAGE_HAUT_ETAT
+#define CAN_ID_ECLAIRAGE_NIV2_ETAT     CAN_ID_ECLAIRAGE_BORNE_ETAT
+
 /* État des heartbeats (DB1) */
 #define HEARTBEAT_ETAT_INITIALISATION  0u
 #define HEARTBEAT_ETAT_PRET            1u

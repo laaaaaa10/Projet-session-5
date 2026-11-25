@@ -19,8 +19,8 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QVBoxLayout, QWidget)
 
-from billets import EtatImpression
-from lecteur_code_barres import LONGUEUR_NUMERO, LecteurCodeBarres
+from modules.billets import EtatImpression
+from modules.lecteur_code_barres import LONGUEUR_NUMERO, LecteurCodeBarres
 
 PERIODE_SUIVI_MS = 200          # rafraîchissement de l'état de l'impression
 

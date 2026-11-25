@@ -23,51 +23,59 @@
 #define RESULTAT_APPLIQUE    1u
 
 /* ---- Tables des nœuds ----
- * PCB-03 (15 DEL, D9 = indice 0) : d'après le rendu 3D, les indices impairs (D10, D12, …, D22)
- * sont les 7 témoins sur le dessus, et les indices pairs l'éclairage sous la carte.
- * PROVISOIRE : l'ordre des places autour de l'ascenseur reste à valider sur la maquette. */
+ * Répartition décidée par l'équipe le 2026-11-25 : trois PCB-03 empilées, chacune
+ * commandée par le PCB-11 d'un STM32 :
+ *   - PCB-03 du bas    → STM32 BAS   : places 1 à 7 ; DEL du dessous éteintes ;
+ *   - PCB-03 du milieu → STM32 BORNE : places 8 à 14 + éclairage du niveau 1 ;
+ *   - PCB-03 du haut   → STM32 HAUT  : éclairage du niveau 2 ; témoins du dessus éteints.
+ * Le niveau 0 n'a pas de DEL : le BAS en refuse les commandes (réponse 0x350 « refusé »).
+ * Les identifiants de réponse suivent la fonction (voir esa_can_ids.h).
+ *
+ * PCB-03 (15 DEL, D9 = indice 0), vérifiée sur la carte le 2026-11-25 :
+ * indices impairs (D10, D12, …, D22) = 7 témoins sur le dessus, dans le sens horaire
+ * vu de dessus à partir de la place au-dessus de l'entrée ; indices pairs = éclairage
+ * sous la carte. Numérotation des places (place 1 = D10) : à confirmer avec l'équipe. */
 static const uint8_t PCB03_INDICES_PLACES[T07_MAX_PLACES_NOEUD] = { 1u, 3u, 5u, 7u, 9u, 11u, 13u };
 static const uint8_t PCB03_INDICES_ECLAIRAGE[] = { 0u, 2u, 4u, 6u, 8u, 10u, 12u, 14u };
-/* PCB-08 de la borne (8 DEL) : toutes en éclairage. */
-static const uint8_t PCB08_INDICES_ECLAIRAGE[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u };
+#define PCB03_NB_DEL   15u
 
 const T07_Config T07_CONFIG_BAS =
 {
-    .id_reponse_del       = CAN_ID_DEL_BAS_ETAT,
-    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_BAS_ETAT,
+    .id_reponse_del       = CAN_ID_DEL_PLACES_1_7_ETAT,
+    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_NIV0_ETAT,
     .premiere_place       = 1u,
     .nb_places            = 7u,
     .indice_place         = PCB03_INDICES_PLACES,
     .niveau_eclairage     = 0u,
-    .indices_eclairage    = PCB03_INDICES_ECLAIRAGE,
-    .nb_eclairage         = (uint8_t)sizeof(PCB03_INDICES_ECLAIRAGE),
-    .nb_del               = 15u,
+    .indices_eclairage    = NULL,                 /* niveau 0 non éclairé : commandes refusées */
+    .nb_eclairage         = 0u,
+    .nb_del               = PCB03_NB_DEL,
 };
 
-const T07_Config T07_CONFIG_HAUT =
+const T07_Config T07_CONFIG_BORNE =
 {
-    .id_reponse_del       = CAN_ID_DEL_HAUT_ETAT,
-    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_HAUT_ETAT,
+    .id_reponse_del       = CAN_ID_DEL_PLACES_8_14_ETAT,
+    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_NIV1_ETAT,
     .premiere_place       = 8u,
     .nb_places            = 7u,
     .indice_place         = PCB03_INDICES_PLACES,
     .niveau_eclairage     = 1u,
     .indices_eclairage    = PCB03_INDICES_ECLAIRAGE,
     .nb_eclairage         = (uint8_t)sizeof(PCB03_INDICES_ECLAIRAGE),
-    .nb_del               = 15u,
+    .nb_del               = PCB03_NB_DEL,
 };
 
-const T07_Config T07_CONFIG_BORNE =
+const T07_Config T07_CONFIG_HAUT =
 {
     .id_reponse_del       = 0u,                   /* pas de témoins de places */
-    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_BORNE_ETAT,
+    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_NIV2_ETAT,
     .premiere_place       = 0u,
     .nb_places            = 0u,
     .indice_place         = NULL,
     .niveau_eclairage     = 2u,
-    .indices_eclairage    = PCB08_INDICES_ECLAIRAGE,
-    .nb_eclairage         = (uint8_t)sizeof(PCB08_INDICES_ECLAIRAGE),
-    .nb_del               = 8u,
+    .indices_eclairage    = PCB03_INDICES_ECLAIRAGE,
+    .nb_eclairage         = (uint8_t)sizeof(PCB03_INDICES_ECLAIRAGE),
+    .nb_del               = PCB03_NB_DEL,
 };
 
 const T07_Config *T07_ConfigDuNoeud(void)
@@ -125,7 +133,7 @@ static void traiter_del_place(uint8_t dlc, const uint8_t *data)
 {
     if (s_cfg->nb_places == 0u)
     {
-        s_stats.ignorees++;              /* nœud sans témoins (borne) */
+        s_stats.ignorees++;              /* nœud sans témoins (HAUT) */
         return;
     }
 
@@ -165,7 +173,7 @@ static void traiter_eclairage(uint8_t dlc, const uint8_t *data)
         s_stats.ignorees++;              /* niveau d'un autre nœud */
         return;
     }
-    if (!niveau_existe || (dlc != DLC_ECLAIRAGE_CMD))
+    if (!niveau_existe || (dlc != DLC_ECLAIRAGE_CMD) || (s_cfg->nb_eclairage == 0u))
     {
         repondre(s_cfg->id_reponse_eclairage, seq, niveau, RESULTAT_REFUSE);
         return;
@@ -183,9 +191,19 @@ static void traiter_eclairage(uint8_t dlc, const uint8_t *data)
 bool T07_Init(const T07_Config *config, SPI_HandleTypeDef *hspi, T07_EnvoyerTrame envoyer)
 {
     if ((config == NULL) || (config->nb_places > T07_MAX_PLACES_NOEUD) ||
-        ((config->nb_places > 0u) && (config->indice_place == NULL)))
+        ((config->nb_places > 0u) && (config->indice_place == NULL)) ||
+        ((config->nb_eclairage > 0u) && (config->indices_eclairage == NULL)) ||
+        (config->nb_del > RGB_LED_CHAIN_MAX_LEDS))
     {
         return false;
+    }
+    for (uint8_t i = 0u; i < config->nb_places; i++)
+    {
+        if (config->indice_place[i] >= config->nb_del) { return false; }
+    }
+    for (uint8_t i = 0u; i < config->nb_eclairage; i++)
+    {
+        if (config->indices_eclairage[i] >= config->nb_del) { return false; }
     }
     if (RgbLedChain_Init(&s_chaine, hspi, config->nb_del) != HAL_OK)
     {
@@ -195,9 +213,16 @@ bool T07_Init(const T07_Config *config, SPI_HandleTypeDef *hspi, T07_EnvoyerTram
     s_cfg     = config;
     s_envoyer = envoyer;
     memset(s_places, 0, sizeof s_places);                 /* T07_PLACE_INITIALE : éteintes */
-    s_eclairage.r = T07_ECLAIRAGE_DEMARRAGE_R;
-    s_eclairage.v = T07_ECLAIRAGE_DEMARRAGE_V;
-    s_eclairage.b = T07_ECLAIRAGE_DEMARRAGE_B;
+    if (config->nb_eclairage > 0u)
+    {
+        s_eclairage.r = T07_ECLAIRAGE_DEMARRAGE_R;
+        s_eclairage.v = T07_ECLAIRAGE_DEMARRAGE_V;
+        s_eclairage.b = T07_ECLAIRAGE_DEMARRAGE_B;
+    }
+    else
+    {
+        s_eclairage.r = 0u; s_eclairage.v = 0u; s_eclairage.b = 0u;
+    }
     s_rpi_en_ligne = false;
     memset(&s_stats, 0, sizeof s_stats);
     memset(s_image, 0, sizeof s_image);
