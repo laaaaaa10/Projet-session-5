@@ -1,0 +1,2 @@
+# Optionnel : uniquement pour le raccordement et la demonstration graphiques.
+PyQt6>=6.4,<7

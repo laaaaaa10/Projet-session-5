@@ -17,10 +17,12 @@ Release/
 __pycache__/
 *.py[cod]
 .venv/
+.venv-qt/
 venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+/prog/rpi/donnees/actives/
 .ipynb_checkpoints/
 *.egg-info/
 build/
