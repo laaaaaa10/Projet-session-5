@@ -21,7 +21,7 @@ BUS_I2C = 1
 ADRESSE_PCA9685 = 0x40
 CANAL_SERVO = 0                 # PWM1 / connecteur P1 = sortie LED0 du PCA9685
 FREQUENCE_PWM_HZ = 50
-IMPULSION_FERMEE_US = 2000      # barrière fermée (à calibrer)
+IMPULSION_FERMEE_US = 1450      # barrière fermée (à calibrer)
 IMPULSION_OUVERTE_US = 450     # barrière ouverte (à calibrer)
 TEMPS_MOUVEMENT_S = 0.6         # 180° en ~0,36 s (0,12 s / 60°) + marge
 
