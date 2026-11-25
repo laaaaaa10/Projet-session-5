@@ -3,23 +3,24 @@
 import json
 import re
 
-from PyQt6.QtCore import Qt, QDateTime, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QDateTime, QTimer, QSize, pyqtSlot
 from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QFrame, QGridLayout, QHBoxLayout,
+    QAbstractItemView, QButtonGroup, QGridLayout, QHBoxLayout,
     QHeaderView, QLineEdit, QMainWindow, QPlainTextEdit, QPushButton,
     QScrollArea, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
+from pc.holographie import (EmblemeESA, FondConsole, PanneauHolographique,
+                            charger_polices, icone_bulle)
 from pc.visuels import (ACTIONS, COULEURS, ETATS, PLACES, STYLE, CadranPlaces,
                        DonneesRecues, PlaceConsole, centimes, code, etiquette,
                        resultat_lisible, ton)
 
 
 def panneau(titre=None, nom="panneau"):
-    cadre = QFrame()
-    cadre.setObjectName(nom)
+    cadre = PanneauHolographique(nom)
     layout = QVBoxLayout(cadre)
     layout.setContentsMargins(20, 18, 20, 18)
     layout.setSpacing(14)
@@ -53,11 +54,11 @@ def cellule(table, ligne, colonne, texte):
 
 
 class FenetreSupervision(QMainWindow):
-    TITRES = [("VUE D’ENSEMBLE", "Le stationnement, en un regard."),
-              ("COMPTES RFID", "Consulter un solde et ajouter du crédit."),
-              ("ACTIVITÉ", "Suivre les demandes et les transactions de la borne."),
-              ("STATISTIQUES", "Les indicateurs transmis par la borne."),
-              ("DIAGNOSTIC", "Connexion, disponibilité et données techniques.")]
+    TITRES = [("Vue d’ensemble", "Le stationnement, en un regard."),
+              ("Comptes RFID", "Consulter un solde et ajouter du crédit."),
+              ("Activité", "Suivre les demandes et les transactions de la borne."),
+              ("Statistiques", "Les indicateurs transmis par la borne."),
+              ("Diagnostic", "Connexion, disponibilité et données techniques.")]
 
     def __init__(self, pont):
         super().__init__()
@@ -72,18 +73,19 @@ class FenetreSupervision(QMainWindow):
         self.setWindowTitle("ESA — Centre de supervision")
         self.resize(1440, 900)
         self.setMinimumSize(1000, 700)
+        charger_polices()
         self.setStyleSheet(STYLE)
-        contenu = QWidget()
+        contenu = FondConsole()
         contenu.setObjectName("console")
         self.setCentralWidget(contenu)
         racine = QHBoxLayout(contenu)
-        racine.setContentsMargins(14, 14, 22, 14)
-        racine.setSpacing(24)
+        racine.setContentsMargins(14, 14, 20, 14)
+        racine.setSpacing(20)
         self.commandes_service = {}
         self.navigation = []
         self._construire_rail(racine)
         principal = QVBoxLayout()
-        principal.setSpacing(12)
+        principal.setSpacing(10)
         racine.addLayout(principal, 1)
         entete = QHBoxLayout()
         titres = QVBoxLayout()
@@ -118,7 +120,7 @@ class FenetreSupervision(QMainWindow):
         self.message.hide()
         principal.addWidget(self.message)
         pied = QHBoxLayout()
-        pied.addWidget(etiquette("PC  ↔  BROKER MQTT  ↔  PI", "surTitre"))
+        pied.addWidget(etiquette("PC  ↔︎  BROKER MQTT  ↔︎  PI", "surTitre"))
         pied.addStretch()
         self.actualisation = etiquette("En attente du premier état", "petit")
         pied.addWidget(self.actualisation)
@@ -133,24 +135,28 @@ class FenetreSupervision(QMainWindow):
         pont.erreur.connect(self._erreur)
         pont.termine.connect(self._arrete)
         self._actualiser_commandes()
+        for bouton in self.findChildren(QPushButton):
+            bouton.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _construire_rail(self, racine):
-        rail = QFrame()
-        rail.setObjectName("rail")
+        rail = PanneauHolographique("rail")
         rail.setFixedWidth(224)
         layout = QVBoxLayout(rail)
-        layout.setContentsMargins(16, 20, 16, 14)
+        layout.setContentsMargins(14, 10, 14, 14)
         layout.setSpacing(8)
-        marque = etiquette("ESA", "marque")
-        marque.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        marque = EmblemeESA()
         layout.addWidget(marque)
         signature = etiquette("STATIONNEMENT AUTOMATISÉ", "petit")
         signature.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(signature)
-        layout.addSpacing(10)
+        layout.addSpacing(6)
         self._groupe_navigation = QButtonGroup(self)
         for i, libelle in enumerate(("Vue d’ensemble", "Comptes RFID", "Activité", "Statistiques", "Diagnostic")):
-            bouton = QPushButton(f"0{i + 1}   {libelle}")
+            bouton = QPushButton(libelle)
+            motif, couleur = (("plan", "#00b8e6"), ("carte", "#1382ed"), ("activite", "#9d55ed"),
+                               ("stats", "#d962a7"), ("diagnostic", "#4874b6"))[i]
+            bouton.setIcon(icone_bulle(motif, couleur))
+            bouton.setIconSize(QSize(34, 34))
             bouton.setObjectName("navigation")
             bouton.setCheckable(True)
             bouton.clicked.connect(lambda checked=False, index=i: self.afficher_page(index))
@@ -192,7 +198,7 @@ class FenetreSupervision(QMainWindow):
         page.setObjectName("page")
         disposition = QVBoxLayout(page)
         disposition.setContentsMargins(2, 2, 8, 2)
-        disposition.setSpacing(16)
+        disposition.setSpacing(12)
         defilement = QScrollArea()
         defilement.setWidgetResizable(True)
         defilement.setWidget(page)
@@ -221,10 +227,11 @@ class FenetreSupervision(QMainWindow):
         compteurs = QGridLayout()
         compteurs.setSpacing(10)
         self.compteurs = {}
-        for index, (cle, titre, couleur) in enumerate((("LIBRE", "LIBRES CONNUES", "vert"), ("OCCUPEE", "OCCUPÉES CONNUES", "rouge"),
-                                    ("RESERVEE", "RÉSERVÉES CONNUES", "bleu"), ("INCONNU", "NON RENSEIGNÉES", "neutre"))):
+        for index, (cle, titre, couleur) in enumerate((("LIBRE", "Libres connues", "vert"), ("OCCUPEE", "Occupées connues", "rouge"),
+                                    ("RESERVEE", "Réservées connues", "bleu"), ("INCONNU", "Non renseignées", "neutre"))):
             cadre, interieur = panneau(nom="compteur")
-            interieur.setContentsMargins(14, 7, 14, 7)
+            ton(cadre, couleur)
+            interieur.setContentsMargins(19, 5, 19, 5)
             interieur.setSpacing(1)
             valeur = etiquette("—", "valeurCompteur")
             ton(valeur, couleur)
@@ -234,10 +241,10 @@ class FenetreSupervision(QMainWindow):
             compteurs.addWidget(cadre, index // 2, index % 2)
         synthese.addLayout(compteurs, 2)
         page.addLayout(synthese)
-        places, interieur = panneau("PLAN DU STATIONNEMENT")
-        interieur.setContentsMargins(16, 14, 16, 14)
+        places, interieur = panneau("Le stationnement")
+        interieur.setContentsMargins(16, 10, 16, 10)
         interieur.setSpacing(8)
-        interieur.addWidget(etiquette("14 emplacements · 2 niveaux    /    Présence physique IR indiquée sous chaque état", "secondaire", True))
+        interieur.addWidget(etiquette("14 emplacements · 2 niveaux    /    IR : présence physique du véhicule", "secondaire", True))
         self.places = {}
         for etage in (1, 2):
             interieur.addWidget(etiquette(f"NIVEAU 0{etage}", "surTitre"))
@@ -250,7 +257,7 @@ class FenetreSupervision(QMainWindow):
                 rang.addWidget(place, 1)
             interieur.addLayout(rang)
         page.addWidget(places)
-        anomalies, interieur = panneau("INFORMATIONS DE LA BORNE")
+        anomalies, interieur = panneau("Informations de la borne")
         self.anomalies = etiquette("Données indisponibles.", "secondaire", True)
         interieur.addWidget(self.anomalies)
         self.derniere_demande = etiquette("Aucune demande enregistrée.", "petit", True)
@@ -262,7 +269,7 @@ class FenetreSupervision(QMainWindow):
         page = self._page()
         ligne = QHBoxLayout()
         ligne.setSpacing(18)
-        liste, interieur = panneau("CARTES ENREGISTRÉES")
+        liste, interieur = panneau("Cartes enregistrées")
         self.recherche_comptes = QLineEdit()
         self.recherche_comptes.setPlaceholderText("Rechercher un identifiant de carte…")
         self.recherche_comptes.setAccessibleName("Rechercher une carte")
@@ -276,7 +283,7 @@ class FenetreSupervision(QMainWindow):
         self.etat_comptes = etiquette("Comptes indisponibles.", "secondaire", True)
         interieur.addWidget(self.etat_comptes)
         ligne.addWidget(liste, 3)
-        recharge, interieur = panneau("CONSULTATION & CRÉDIT")
+        recharge, interieur = panneau("Solde & crédit")
         recharge.setMinimumWidth(300)
         interieur.addWidget(etiquette("Sélectionne une carte ou saisis son identifiant complet.", "secondaire", True))
         interieur.addWidget(etiquette("IDENTIFIANT DE CARTE", "surTitre"))
@@ -356,7 +363,7 @@ class FenetreSupervision(QMainWindow):
 
     def _construire_statistiques(self):
         page = self._page()
-        cadre, interieur = panneau("INDICATEURS D’EXPLOITATION")
+        cadre, interieur = panneau("Indicateurs d’exploitation")
         self.etat_statistiques = etiquette("Les statistiques ne sont pas encore disponibles.", "secondaire", True)
         interieur.addWidget(self.etat_statistiques)
         self.statistiques = DonneesRecues()
@@ -383,7 +390,7 @@ class FenetreSupervision(QMainWindow):
 
     def _construire_diagnostic(self, config):
         page = self._page()
-        cadre, interieur = panneau("LIAISON & DISPONIBILITÉ")
+        cadre, interieur = panneau("Liaison & disponibilité")
         self.reseau = etiquette("Configuration du banc de test", "secondaire", True)
         if config is not None:
             self.reseau.setText(f"Broker : {config.hote}:{config.port}\nPréfixe : {config.prefixe}\nTLS : {'activé' if config.tls else 'désactivé'}")
@@ -538,7 +545,7 @@ class FenetreSupervision(QMainWindow):
             connexion, couleur = "Application arrêtée — données périmées", "rouge"
         else:
             connexion, couleur = {
-                "A_JOUR": ("●  PC ↔ broker MQTT ↔ Pi — données à jour", "vert"),
+                "A_JOUR": ("●  PC ↔︎ broker MQTT ↔︎ Pi — données à jour", "vert"),
                 "PERIMEES": ("●  Broker connecté — données périmées, attente du Pi", "orange"),
                 "DECONNECTE": ("●  Déconnecté du broker — données périmées", "rouge"),
             }.get(vue["statut"], ("Connexion en cours — données indisponibles", "orange"))
@@ -565,6 +572,9 @@ class FenetreSupervision(QMainWindow):
         self.cadran.actualiser(valeurs, frais)
         inconnus = valeurs.count("INCONNU")
         for cle, label in self.compteurs.items():
+            teinte = PLACES.get(cle, PLACES["INCONNU"])[1] if frais else "neutre"
+            ton(label, teinte)
+            ton(label.parentWidget(), teinte)
             label.setText(str(inconnus) if cle == "INCONNU" else ("—" if inconnus == 14 else str(valeurs.count(cle))))
         self._soldes = etat.get("soldes") or {}
         self._afficher_comptes()

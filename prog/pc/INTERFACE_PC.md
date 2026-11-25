@@ -59,10 +59,21 @@ et le Pi. Une acceptation s'affiche « En cours », jamais « Terminée ».
 
 ## Rendu
 
-Direction visuelle inspirée des consoles de l'Axiom dans WALL‑E : navigation
-claire et arrondie, panneaux bleu profond, typographie forte et couleurs
-fonctionnelles. Le thème et les formes sont dessinés par Qt, sans image externe
-nécessaire au lancement.
+La deuxième version s'appuie sur les planches originales du directeur graphique
+Mark Cordell Holmes : les espaces passagers apportent les formes bombées, les
+lettres épaisses et les couleurs vives ; les consoles de la passerelle apportent
+les cercles et les surfaces lumineuses.
+
+Le rendu combine des capsules de verre bleu, des reflets cyan, des bordures
+lumineuses, des boutons en volume, une navigation à pictogrammes ronds et un
+emblème ESA orbital. La typographie utilise Fredoka et Nunito, embarquées sous
+licence OFL. Ce sont des choix pour cette adaptation, pas les polices originales
+du film. Les couleurs des témoins restent liées aux données reçues ; les
+compteurs et les places deviennent neutres lorsque les données sont périmées.
+
+Les formes, pictogrammes et reflets sont dessinés par Qt. Aucun extrait du film,
+image téléchargée ou accès réseau supplémentaire n'est nécessaire au lancement.
+Le décor est statique ; il n'ajoute pas de boucle d'animation au traitement MQTT.
 
 Captures du vrai code Qt avec des **états de test hors réseau**. Ces états ne
 sont pas injectés dans l'application normale.
@@ -114,5 +125,5 @@ Le mode simulation de service reste explicitement signalé. T13 complet reste
 - [Contrat MQTT du dépôt](../commun/t13/CONTRAT_MQTT_PROPOSE.md).
 - [Campagne de service simulé](ESSAIS_SERVICE_T13.md).
 - [Direction graphique originale de WALL‑E, Mark Cordell Holmes](https://www.markcordellholmes.com/visual-storytelling).
-- [Fenêtre](fenetre.py), [thème et présentation](visuels.py), [pont Qt](interface.py), [lancement](main.py).
+- [Fenêtre](fenetre.py), [thème et présentation](visuels.py), [surfaces et pictogrammes](holographie.py), [polices et licences](polices/README.md), [pont Qt](interface.py), [lancement](main.py).
 - [Essais de console](../tests/test_console_pc_t13.py), [sélection et reprise](../tests/test_interface_pc_t13.py), [broker réel](../tests/test_t13_broker.py).
