@@ -11,7 +11,6 @@ de T01 : elles ne créent pas de QApplication et ne décident ni de l'ouverture
 de la barrière (T03) ni de la validité d'une transaction (T04).
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T05)
 """
 from datetime import datetime
 
