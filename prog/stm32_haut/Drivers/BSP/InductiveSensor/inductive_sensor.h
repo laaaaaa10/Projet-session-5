@@ -2,7 +2,7 @@
  * inductive_sensor.h
  *
  *  Created on: 18 nov. 2026
- *      Author: Jonathan Marois
+ *      Author: Layten
  */
 
 #ifndef BSP_INDUCTIVESENSOR_INDUCTIVE_SENSOR_H_
@@ -15,9 +15,9 @@
 #define INDUCTIVE_SENSOR_COUNT   3U
 
 /* Pins du connecteur J1 du ClickBoard (P0.x) où sont branchées les sorties des capteurs 1, 2 et 3 */
-#define INDUCTIVE_PIN_1          5U
+#define INDUCTIVE_PIN_1          7U
 #define INDUCTIVE_PIN_2          6U
-#define INDUCTIVE_PIN_3          7U
+#define INDUCTIVE_PIN_3          5U
 
 /* Niveau lu quand la cible métallique est détectée.
  * Mesuré sur le banc : cible présente = 0, pas de cible = 1. */

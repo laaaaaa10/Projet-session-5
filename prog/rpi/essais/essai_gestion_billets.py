@@ -3,38 +3,39 @@ essai_gestion_billets.py - T05 (RPi) : essai de GestionBillets sur le bus réel.
 
 Montre le fonctionnement non bloquant : la boucle principale continue de
 tourner (compteur affiché) pendant que les réponses CAN arrivent.
+Utilise le service CAN commun (communications/can_bus.py).
 
-Usage : python3 essai_gestion_billets.py [transaction] [place]
+Usage : python3 essai_gestion_billets.py [transaction] [place] [--simul]
 
 Projet ESA - 243-557 - Automne 2026
+Auteur : Edwin (T05)
 """
 import os
 import sys
 import time
 from datetime import datetime
 
-import can
-
-# Permet d'importer prog/rpi/modules/billets.py depuis prog/rpi/essais/
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "modules"))
-from billets import GestionBillets  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # racine prog/rpi
+from communications.can_bus import ServiceCAN  # noqa: E402
+from modules.billets import creer_gestion_billets  # noqa: E402
 
 
 def main():
-    transaction = int(sys.argv[1]) if len(sys.argv) > 1 else 4213
-    place = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+    arguments = [a for a in sys.argv[1:] if not a.startswith("--")]
+    simulation = "--simul" in sys.argv
+    transaction = int(arguments[0]) if len(arguments) > 0 else 4213
+    place = int(arguments[1]) if len(arguments) > 1 else 3
 
-    bus = can.Bus(interface="socketcan", channel="can0")
-
-    def envoyer(identifiant, donnees):
-        bus.send(can.Message(arbitration_id=identifiant, data=donnees,
-                             is_extended_id=False))
-
-    billets = GestionBillets(envoyer)
-
-    # Notifier : un fil séparé reçoit les trames et appelle notre fonction
-    notifier = can.Notifier(bus, [lambda msg: billets.traiter_trame(
-        msg.arbitration_id, bytes(msg.data))])
+    simulateur = None
+    if simulation:
+        from exemples.simulateur_stm32_borne import SimulateurStm32Borne
+        service = ServiceCAN(interface="virtual", channel="esa")
+        simulateur = SimulateurStm32Borne(channel="esa")
+        simulateur.demarrer()
+    else:
+        service = ServiceCAN()               # can0
+    billets = creer_gestion_billets(service)
+    service.demarrer()
 
     sequence = billets.demander_impression(transaction, place, datetime.now())
     print(f"Demande envoyée (séquence {sequence}) - la boucle continue sans attendre")
@@ -51,8 +52,9 @@ def main():
         time.sleep(0.1)                        # simule le reste de l'application
 
     print(f"Numéro de transaction : {transaction:06d}")
-    notifier.stop()
-    bus.shutdown()
+    service.arreter()
+    if simulateur:
+        simulateur.arreter()
 
 
 if __name__ == "__main__":

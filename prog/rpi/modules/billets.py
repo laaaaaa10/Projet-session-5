@@ -153,3 +153,11 @@ class GestionBillets:
         with self._verrou:
             demande = self._demandes.get(sequence)
             return demande.etat if demande else EtatImpression.INCONNUE
+
+
+def creer_gestion_billets(service_can, **options) -> GestionBillets:
+    """Crée GestionBillets branché sur le service CAN commun :
+    envoi par service_can.envoyer, réception des 0x230 par abonnement."""
+    billets = GestionBillets(service_can.envoyer, **options)
+    service_can.abonner([ID_IMPRESSION_ETAT], billets.traiter_trame)
+    return billets

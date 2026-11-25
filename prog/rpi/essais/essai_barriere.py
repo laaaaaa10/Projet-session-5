@@ -14,9 +14,9 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "modules"))
-import barriere  # noqa: E402
-from barriere import CommandeBarriere  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # racine prog/rpi
+from modules import barriere  # noqa: E402
+from modules.barriere import CommandeBarriere  # noqa: E402
 
 
 def main():

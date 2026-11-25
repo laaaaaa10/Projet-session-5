@@ -3,7 +3,7 @@ essai_pages_t05.py - T05 (RPi) : fenêtre d'essai des pages PageBillet et
 PageSaisieBillet, en attendant la fenêtre principale de T01.
 
 Usage : python3 essai_pages_t05.py            (bus CAN réel can0)
-        python3 essai_pages_t05.py --simul    (STM32 Borne simulé, sans CAN)
+        python3 essai_pages_t05.py --simul    (STM32 Borne simulé, bus virtuel)
 
 Projet ESA - 243-557 - Automne 2026
 Auteur : Edwin (T05)
@@ -12,51 +12,36 @@ import os
 import random
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "modules"))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "interface"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # racine prog/rpi
 
-from PyQt6.QtCore import QTimer                                     # noqa: E402
+from PyQt6.QtCore import QTimer                                       # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QMainWindow,  # noqa: E402
                              QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
-from billets import ID_IMPRESSION_ETAT, GestionBillets              # noqa: E402
-from pages_billet import PageBillet, PageSaisieBillet               # noqa: E402
+from communications.can_bus import ServiceCAN                         # noqa: E402
+from interface.qt.pages_billet import PageBillet, PageSaisieBillet    # noqa: E402
+from modules.billets import creer_gestion_billets                     # noqa: E402
 
 TRANSACTIONS_CONNUES = set()     # remplace T04 pour l'essai
-
-
-def creer_envoi(simulation, billets_ref):
-    """Retourne (fonction d'envoi, objet à arrêter)."""
-    if simulation:
-        def envoyer(identifiant, donnees):
-            # STM32 simulé : répond 1 puis 2 sur la même séquence
-            if identifiant == 0x361:
-                seq = donnees[0]
-                QTimer.singleShot(100, lambda: billets_ref[0].traiter_trame(
-                    ID_IMPRESSION_ETAT, bytes([seq, 1, 0])))
-                QTimer.singleShot(2000, lambda: billets_ref[0].traiter_trame(
-                    ID_IMPRESSION_ETAT, bytes([seq, 2, 0])))
-        return envoyer, None
-
-    import can
-    bus = can.Bus(interface="socketcan", channel="can0")
-
-    def envoyer(identifiant, donnees):
-        bus.send(can.Message(arbitration_id=identifiant, data=donnees,
-                             is_extended_id=False))
-    notifier = can.Notifier(bus, [lambda msg: billets_ref[0].traiter_trame(
-        msg.arbitration_id, bytes(msg.data))])
-    return envoyer, (notifier, bus)
 
 
 def main():
     simulation = "--simul" in sys.argv
     app = QApplication(sys.argv)
 
-    billets_ref = [None]
-    envoyer, ressources = creer_envoi(simulation, billets_ref)
-    billets = GestionBillets(envoyer)
-    billets_ref[0] = billets
+    simulateur = None
+    if simulation:
+        from exemples.simulateur_stm32_borne import SimulateurStm32Borne
+        service = ServiceCAN(interface="virtual", channel="esa")
+        simulateur = SimulateurStm32Borne(channel="esa")
+        simulateur.demarrer()
+    else:
+        service = ServiceCAN()
+    billets = creer_gestion_billets(service)
+    try:
+        service.demarrer()
+    except Exception as erreur:
+        print(f"Bus CAN indisponible ({erreur}) : les impressions échoueront")
 
     page_billet = PageBillet(billets)
     page_saisie = PageSaisieBillet()
@@ -106,9 +91,9 @@ def main():
     fenetre.show()
 
     code = app.exec()
-    if ressources:
-        ressources[0].stop()
-        ressources[1].shutdown()
+    service.arreter()
+    if simulateur:
+        simulateur.arreter()
     sys.exit(code)
 
 

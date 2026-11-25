@@ -12,8 +12,8 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "modules"))
-from lecteur_code_barres import LecteurCodeBarres  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # racine prog/rpi
+from modules.lecteur_code_barres import LecteurCodeBarres  # noqa: E402
 
 
 def lecture(numero, texte):
