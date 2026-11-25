@@ -25,8 +25,8 @@ typedef enum
  * vitesse monte). Les déplacements démarrent donc à STEPPER_START_HZ et montent linéairement jusqu'à la
  * fréquence demandée en STEPPER_RAMP_MS. Si le moteur cale encore : baisser la fréquence demandée, ou
  * STEPPER_START_HZ, ou allonger STEPPER_RAMP_MS. */
-#define STEPPER_START_HZ  120U
-#define STEPPER_RAMP_MS   400U
+#define STEPPER_START_HZ  60U
+#define STEPPER_RAMP_MS   800U
 
 /* Un moteur = un timer/canal PWM pour STEP + une broche DIR */
 typedef struct

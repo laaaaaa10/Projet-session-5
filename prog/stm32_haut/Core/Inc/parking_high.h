@@ -38,20 +38,20 @@
 
 /* --- Plateau tournant --- */
 /* Nombre de pas pour UN TOUR COMPLET du plateau. Un emplacement = ce nombre / 8.
- * 8000 = 5 x l'ancienne valeur (1600) : le plateau ne tournait pas assez. Valeur à affiner sur le banc :
- * si le plateau avance de trop (ou pas assez) d'un emplacement, nouvelle valeur = ancienne x (voulu / mesuré). */
-#define PARKING_ROTATION_STEPS_PER_REV   8000U
-/* Vitesse du plateau (pas/s). Plus bas = plus de force, mais plus lent (1 emplacement = 1000 pas). */
-#define PARKING_ROTATION_FREQ_HZ         300U
+ * 2000 = mesuré sur le banc (1600 tournait trop peu, 8000 tournait 4 fois trop). Si le plateau avance encore de
+ * trop (ou pas assez) d'un emplacement : nouvelle valeur = ancienne x (voulu / mesuré). */
+#define PARKING_ROTATION_STEPS_PER_REV   2000U
+/* Vitesse du plateau (pas/s). Plus bas = plus de force, mais plus lent (1 emplacement = 250 pas). */
+#define PARKING_ROTATION_FREQ_HZ         200U
 /* Sens de la rotation de l'emplacement 1 vers l'emplacement 7. Si le plateau part vers le secteur vide, inverser. */
 #define PARKING_ROTATION_DIR_FORWARD     STEPPER_HORAIRE
 
 /* --- Hauteur --- */
-#define PARKING_HEIGHT_FREQ_HZ           400U
+#define PARKING_HEIGHT_FREQ_HZ           250U
 /* Sens "monter". Si l'ascenseur descend quand il devrait monter, mettre STEPPER_HORAIRE. */
 #define PARKING_HEIGHT_DIR_UP            STEPPER_ANTIHORAIRE
 /* Temps maximum pour atteindre un étage : au-delà, tout s'arrête (mauvais sens, capteur débranché, bloqué...). */
-#define PARKING_HEIGHT_TIMEOUT_MS        60000U
+#define PARKING_HEIGHT_TIMEOUT_MS        120000U
 
 /* --- Étages --- */
 #define PARKING_FLOOR_COUNT              3U        /* capteurs 1 (bas) à 3 (haut) */
