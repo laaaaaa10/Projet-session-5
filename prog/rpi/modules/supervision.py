@@ -1,4 +1,4 @@
-"""Premier jalon T13 : vrai acces T02, autres modules explicitement indisponibles."""
+"""Supervision T13 : acces T02 et gestion de service optionnelle explicite."""
 
 from dataclasses import asdict
 import time
@@ -11,8 +11,9 @@ from commun.t13.protocole import (
 )
 
 class SupervisionT13:
-    def __init__(self, comptes, transport, *, horloge=time.monotonic, periode=5.0):
+    def __init__(self, comptes, transport, *, horloge=time.monotonic, periode=5.0, service=None):
         self.comptes, self.transport = comptes, transport
+        self.service = service
         self.horloge, self.periode = horloge, periode
         self._session = uuid4().hex
         self._revision = 0
@@ -23,14 +24,15 @@ class SupervisionT13:
     def instantane(self):
         """Pas de faux etat LIBRE, EN_SERVICE ou absence d'anomalie."""
         self._revision += 1
-        anomalies = [{"code": "MODULES_NON_RACCORDES",
-                      "message": "T03/T04/T06/T11/T12 et gestion de service non raccordes"}]
+        anomalies = [{"code": "MODULES_NON_RACCORDES", "message":
+                      "T03/T04/T06/T11/T12 reels non raccordes" if self.service else
+                      "T03/T04/T06/T11/T12 et gestion de service non raccordes"}]
         try:
             soldes = self.comptes.lister_soldes()
         except ErreurStockage:
             soldes = None
             anomalies.append({"code": "STOCKAGE_T02", "message": "Soldes indisponibles"})
-        return {
+        etat = {
             "version": 1, "session": self._session, "revision": self._revision,
             "source": "PI", "en_ligne": True, "etat_service": "INCONNU", "arret_verrouille": None,
             "soldes": soldes,
@@ -38,8 +40,24 @@ class SupervisionT13:
                        for niveau in (1, 2) for place in range(1, 8)],
             "transactions": None, "statistiques": None, "anomalies": anomalies,
             "disponibilite": {"T02": soldes is not None, "T03": False, "T04": False,
-                              "T06": False, "T11": False, "T12": False, "service": False},
+                              "T06": False, "T11": False, "T12": False, "service": self.service is not None},
         }
+        if self.service is not None:
+            etat.update(self.service.instantane())
+            if etat["service_simule"]:
+                anomalies.append({"code": "SIMULATION_SERVICE", "message":
+                                  "SIMULATION T03/T11/T12 et securite CAN : aucun moteur commande"})
+            if etat["arret_verrouille"]:
+                anomalies.append({"code": "ARRET_VERROUILLE", "message":
+                                  "Arret verrouille : intervention et reinitialisation requises"})
+            if etat["incident_service"]:
+                anomalies.append({"code": etat["incident_service"], "message": etat["incident_service"]})
+        return etat
+
+    def _publier_resultats_service(self, resultats):
+        for resultat in resultats:
+            self.transport.publier("commande/reponse", resultat)
+            self._publication = float("-inf")
 
     def _repondre(self, demande, phase, code, donnees=None):
         self.transport.publier(canal_reponse(demande["commande"]), reponse(demande, phase, code, donnees))
@@ -63,8 +81,11 @@ class SupervisionT13:
             return
         action, params = demande["commande"], demande["parametres"]
         if action in ACTIONS_SERVICE:
-            self._repondre(demande, "REFUSEE", "MODULE_INDISPONIBLE",
-                           {"message": "Gestion de service/CAN non raccordee ; aucune action executee"})
+            if self.service is None:
+                self._repondre(demande, "REFUSEE", "MODULE_INDISPONIBLE",
+                               {"message": "Gestion de service/CAN non raccordee ; aucune action executee"})
+            else:
+                self._publier_resultats_service(self.service.traiter(demande))
             return
         self._repondre(demande, "ACCEPTEE", "DEMANDE_VALIDEE")
         try:
@@ -92,6 +113,9 @@ class SupervisionT13:
                            {"message": "Reprendre exactement la meme demande et le meme ID"})
 
     def actualiser(self):
+        # La progression locale ne depend jamais du Wi-Fi ni du broker.
+        if self.service is not None:
+            self._publier_resultats_service(self.service.actualiser())
         connecte, generation, _ = self.transport.etat
         if not connecte:
             return
@@ -107,4 +131,8 @@ class SupervisionT13:
             self._publication = self.horloge()
 
     def fermer(self):
-        self.transport.fermer()
+        try:
+            self.transport.fermer()
+        finally:
+            if self.service is not None:
+                self.service.fermer()

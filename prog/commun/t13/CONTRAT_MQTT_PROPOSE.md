@@ -62,22 +62,23 @@ réutilisent exactement cette enveloppe. Une nouvelle recharge volontaire
 crée un nouvel ID. Ne pas supprimer le journal PC pour résoudre une demande
 incertaine. Il est lié au broker et au préfixe de sa borne.
 
-| Commande | Paramètres exacts | Premier jalon |
+| Commande | Paramètres exacts | Disponibilité |
 | --- | --- | --- |
 | `CONSULTER_SOLDE` | `id_uart` | Accès T02 réel |
 | `AJOUTER_CREDIT` | `id_uart`, `montant_centimes` | Accès T02 réel, anti-doublons de T02 |
 | `SYNCHRONISER` | Objet vide | Commande technique **proposée** ; instantané du Pi |
-| `METTRE_HORS_SERVICE` | Objet vide | Refus `MODULE_INDISPONIBLE` |
-| `REMETTRE_EN_SERVICE` | Objet vide | Refus `MODULE_INDISPONIBLE` |
-| `ARRET_IMMEDIAT` | Objet vide | Refus `MODULE_INDISPONIBLE` ; aucun arrêt mécanique annoncé |
-| `REINITIALISER` | Objet vide | Refus `MODULE_INDISPONIBLE` |
+| `METTRE_HORS_SERVICE` | Objet vide | Banc explicite `--simuler-service` ; indisponible sans adaptateur |
+| `REMETTRE_EN_SERVICE` | Objet vide | Même banc ; validation des conditions locales |
+| `ARRET_IMMEDIAT` | Objet vide | Même banc ; verrou T13 et demande d'arrêt au double |
+| `REINITIALISER` | Objet vide | Même banc ; attente de confirmation du réarmement simulé |
 
 `SYNCHRONISER` est une extension technique proposée sur `commande`, pas une
 commande imposée par le professeur. Elle permet de vérifier la fraîcheur du
 Pi sans confondre une ancienne publication retained avec une réponse actuelle.
 L'équipe doit valider cette extension avec le reste du format JSON. Les quatre
-commandes système restent inactives dans ce jalon ; leur exécution et la
-confirmation des transitions d'état seront raccordées au jalon suivant.
+commandes système sont actives uniquement avec un adaptateur de service.
+Le banc `--simuler-service` fournit cet adaptateur en simulation explicite.
+La borne normale conserve le refus `MODULE_INDISPONIBLE` jusqu'au raccordement réel.
 
 Les identifiants UART sont les dix caractères hexadécimaux complets, en
 majuscules dans ce contrat. Le crédit est un entier strictement positif ;
@@ -93,7 +94,7 @@ maximum). Taille maximale d'un message : 64 Kio.
 | --- | --- |
 | `ACCEPTEE` | Demande validée et acheminée ; conserver l'attente |
 | `TERMINEE` | Résultat obtenu ; consulter le code et le reçu pour connaître l'issue |
-| `REFUSEE` | Paramètres, conflit d'ID ou module absent ; aucun succès annoncé |
+| `REFUSEE` | Demande refusée ou procédure interrompue ; le code précise l'issue, sans succès annoncé |
 | `INCERTAINE` | Incident technique ; garder la demande et le même ID pour la reprise |
 
 Un crédit terminé contient `donnees.recu`, avec les champs de
@@ -121,10 +122,47 @@ exige d'abord la réponse à sa nouvelle demande `SYNCHRONISER`. Les révisions
 répétées ou anciennes ne rafraîchissent pas les données.
 
 Les demandes sans réponse finale sont retransmises toutes les trois secondes
-après cette synchronisation. Les quatre commandes de service n'ont pas encore
-de traitement : leur futur suivi devra préserver les verrous et ne jamais
-relancer une opération mécanique interrompue. Ne pas brancher un actionneur
-directement sur cette retransmission générique.
+après cette synchronisation. Le service dispose d'un journal durable séparé
+de T02 : un même ID retrouve sa réponse, sans répéter les effets. Une ancienne
+réponse `EN_SERVICE` reste historique ; l'instantané publié donne l'état courant.
+Une nouvelle tentative après un refus exige un nouvel ID (nouveau clic sur le
+bouton). Un redémarrage ne restaure jamais `EN_SERVICE` automatiquement.
+
+## Extension de service simulé — 25 novembre 2026
+
+Les quatre commandes conservent leurs paramètres vides. Le Pi vérifie les
+conditions locales dans `api/service_t13.py` : le PC ne peut pas déclarer les
+références valides ou confirmer une intervention par un paramètre MQTT.
+Dans le banc seulement, `scenario_service_t13.py ... intervention` simule cette
+confirmation et les vérifications mécaniques. Les méthodes de cet adaptateur
+sont une proposition de raccordement à valider avec les auteurs de T03/T11/T12.
+
+Champs supplémentaires proposés dans `etat` : `service_simule` (booléen),
+`diagnostic_service` (objet), `incident_service` (code ou null) et
+`commande_service_en_cours` (ID ou null). `disponibilite.service` signifie
+que cet adaptateur est raccordé ; les disponibilités **réelles** T03/T11/T12
+restent fausses. Le diagnostic simulé ne remplit ni les transactions T04,
+ni les places IR. Le PC affiche une bannière explicite de simulation.
+
+Mise hors service confirmée : `ACCEPTEE/TRANSACTION_A_TERMINER`, puis
+`TERMINEE/HORS_SERVICE` avec le même ID après la fin locale. En retrait,
+la fin inclut le retrait manuel du véhicule. Un arrêt interrompt la procédure
+avec `REFUSEE/INTERROMPUE_PAR_ARRET` et `interrompue=true` ; l'arrêt reçoit son
+propre résultat corrélé. `TERMINEE/ARRET_VERROUILLE` atteste le verrou logiciel
+et la demande d'arrêt à l'adaptateur, jamais une position physique mesurée.
+
+Réinitialisation : vérifier d'abord les cinq conditions de l'interface T13,
+publier `ACCEPTEE/REARMEMENT_EN_COURS`, attendre un résultat positif du double
+et vérifier de nouveau les conditions. Sans résultat dans les cinq secondes
+(temporisation proposée), conserver le verrou avec `REARMEMENT_SANS_REPONSE`.
+Un refus, un nouveau défaut, une condition perdue ou un redémarrage conserve
+également le verrou. Le succès mène uniquement à `HORS_SERVICE`.
+
+Les fichiers `service-simule.sqlite3` et `scenario-service.json` appartiennent
+au dossier d'essai. Le premier conserve les verrous et décisions, le second
+injecte un événement local unique. Le serveur ignore l'ancien événement au
+démarrage. Attendre la prise en compte affichée avant d'injecter le suivant.
+La progression locale continue pendant toute déconnexion MQTT.
 
 Les callbacks réseau déposent les messages dans une file de 256 éléments.
 `actualiser()` traite au maximum huit commandes côté Pi. Les débordements

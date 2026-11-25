@@ -1,5 +1,11 @@
 # T13 — Premier jalon MQTT / T02 / PC
 
+**Ajout du 25 novembre :** le [banc de service simulé](ESSAIS_SERVICE_T13.md)
+permet maintenant de tester les quatre commandes de service avec T11/T12
+simulées, journal durable et indication explicite dans l'écran PC. L'activation
+se fait uniquement avec `serveur_t13.py --simuler-service`. Le bilan du premier
+jalon ci-dessous décrit le mode normal, où les modules réels restent non raccordés.
+
 État vérifié le 25 novembre 2026, base Git `0ccfd7fa7ddf9118e73319b1c8f8201087c88635`.
 Branche de travail : `integration-t13`. **T13 n'est pas terminé.**
 

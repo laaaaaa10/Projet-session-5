@@ -117,6 +117,8 @@ class TestsBrokerT13(BancComptes):
         self.assertGreaterEqual(self.pi.etat[1], 2)
 
     def test_fenetre_pc_qt_vrai_broker_credit_et_perte_connexion(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
         from PyQt6.QtWidgets import QApplication
         from pc.interface import FenetreSupervision, PontPC
         app = QApplication.instance() or QApplication([])
@@ -139,6 +141,16 @@ class TestsBrokerT13(BancComptes):
         self.attendre(lambda: self.solde() == 2500 and fenetre.crediter.isEnabled(), app=app)
         self.assertTrue(all(not b.isEnabled() for b in fenetre.commandes_service.values()))
         self.assertEqual(len(fenetre.places), 14)
+        self.assertEqual(len(self.lignes_journal()), 1)
+        reference = fenetre.demandes.item(0, 0).text()
+        rectangle = fenetre.demandes.visualItemRect(fenetre.demandes.item(0, 1))
+        QTest.mouseClick(fenetre.demandes.viewport(), Qt.MouseButton.LeftButton,
+                         pos=rectangle.center())
+        self.attendre(lambda: fenetre.reprendre.isEnabled(), app=app)
+        fenetre.reprendre.click()
+        self.attendre(lambda: "déjà traitée" in fenetre.demandes.item(0, 2).text(), app=app)
+        self.assertEqual(fenetre.demandes.item(0, 0).text(), reference)
+        self.assertEqual(self.solde(), 2500)
         self.assertEqual(len(self.lignes_journal()), 1)
         self.broker.fermer()
         self.attendre(lambda: "Déconnecté" in fenetre.connexion.text(), app=app)

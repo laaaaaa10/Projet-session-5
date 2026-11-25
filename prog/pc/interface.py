@@ -103,6 +103,7 @@ class FenetreSupervision(QMainWindow):
         self.pont = pont
         self._fermeture = self._termine = False
         self._selection = None
+        self._donnees_fraiches = False
         self.setWindowTitle("ESA — Supervision PC · T13")
         self.resize(1040, 800)
         contenu = QWidget()
@@ -114,6 +115,10 @@ class FenetreSupervision(QMainWindow):
         self.connexion = QLabel("Connexion en cours — données indisponibles")
         self.connexion.setStyleSheet("padding: 10px; background: #ffe4a6; color: #392b00;")
         disposition.addWidget(self.connexion)
+        self.simulation = QLabel("SIMULATION T03/T11/T12 et sécurité CAN — aucun moteur commandé")
+        self.simulation.setStyleSheet("padding: 8px; background: #ffdf8a; color: #302200; font-weight: bold;")
+        self.simulation.setVisible(False)
+        disposition.addWidget(self.simulation)
         self.service = QLabel("État du système : INCONNU")
         disposition.addWidget(self.service)
         places = QGroupBox("Les 14 places")
@@ -159,7 +164,8 @@ class FenetreSupervision(QMainWindow):
         for action in sorted(ACTIONS_SERVICE):
             bouton = QPushButton(action.replace("_", " "))
             bouton.setEnabled(False)
-            bouton.setToolTip("Commande système indisponible dans ce premier jalon")
+            bouton.setToolTip("Nécessite une gestion de service raccordée et des données à jour")
+            bouton.clicked.connect(lambda checked=False, action=action: self._demander_service(action))
             self.commandes_service[action] = bouton
             commandes.addWidget(bouton)
         disposition.addLayout(commandes)
@@ -175,9 +181,11 @@ class FenetreSupervision(QMainWindow):
         self.demandes.horizontalHeader().setStretchLastSection(True)
         self.demandes.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.demandes.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.demandes.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.demandes.itemSelectionChanged.connect(self._selectionner)
         disposition.addWidget(self.demandes)
         self.reprendre = QPushButton("Renvoyer la demande sélectionnée avec le même ID")
+        self.reprendre.setToolTip("Sélectionner une ligne dans le tableau des demandes ; les données du Pi doivent être à jour.")
         self.reprendre.setEnabled(False)
         self.reprendre.clicked.connect(self._reprendre)
         disposition.addWidget(self.reprendre)
@@ -198,25 +206,41 @@ class FenetreSupervision(QMainWindow):
             params["montant_centimes"] = self.montant.value()
         self.pont.requete.emit(action, params)
 
+    def _demander_service(self, action):
+        if self.commandes_service[action].isEnabled():
+            self.message.clear()
+            self.pont.requete.emit(action, {})
+
     def _selectionner(self):
-        ligne = self.demandes.currentRow()
-        if ligne >= 0 and self.demandes.item(ligne, 0) is not None:
-            self._selection = self.demandes.item(ligne, 0).text()
+        # L'index courant et les lignes selectionnees sont distincts dans Qt.
+        lignes = self.demandes.selectionModel().selectedRows(0)
+        self._selection = lignes[0].data() if len(lignes) == 1 else None
+        self._actualiser_reprise()
+
+    def _actualiser_reprise(self):
+        self.reprendre.setEnabled(self._donnees_fraiches and self._selection is not None
+                                  and not self._fermeture and not self._termine)
 
     def _reprendre(self):
-        if self._selection:
+        if self.reprendre.isEnabled() and self._selection:
             self.pont.requete.emit("REPRENDRE_DEMANDE", {"id_commande": self._selection})
 
     @pyqtSlot(object)
     def actualiser(self, vue):
         frais = vue["statut"] == "A_JOUR"
-        self.connexion.setText({"A_JOUR": "Connecté au Pi — données à jour",
+        self._donnees_fraiches = frais
+        self.connexion.setText({"A_JOUR": "PC ↔ broker MQTT ↔ Pi — données à jour",
                                "PERIMEES": "Broker connecté — données périmées, attente du Pi",
                                "DECONNECTE": "Déconnecté — données périmées"}[vue["statut"]])
         self.connexion.setStyleSheet("padding: 10px; color: #182018; background: " +
                                     ("#c7e8cb;" if frais else "#ffe4a6;"))
         etat = vue["etat"] or {}
+        self.simulation.setVisible(etat.get("service_simule") is True)
         self.service.setText("État du système : " + etat.get("etat_service", "INCONNU"))
+        service_disponible = (frais and etat.get("disponibilite", {}).get("service", False)
+                             and not self._fermeture and not self._termine)
+        for bouton in self.commandes_service.values():
+            bouton.setEnabled(service_disponible)
         for place in etat.get("places", []):
             self.places[place["id"]].setText(place["id"] + "\n" + place["logique"])
         soldes = etat.get("soldes") or {}
@@ -229,8 +253,8 @@ class FenetreSupervision(QMainWindow):
         attente = any(not d["termine"] and d["demande"]["commande"] == "AJOUTER_CREDIT"
                       for d in vue["demandes"])
         self.crediter.setEnabled(disponible and not attente and not self._fermeture)
-        self.reprendre.setEnabled(frais and self._selection is not None and not self._fermeture)
         self.informations.setPlainText("\n".join([
+            *(["Service simulé : " + str(etat["diagnostic_service"])] if etat.get("service_simule") else []),
             "Transactions : indisponibles" if etat.get("transactions") is None else str(etat["transactions"]),
             "Statistiques : indisponibles" if etat.get("statistiques") is None else str(etat["statistiques"]),
             *[str(a.get("message", a)) if isinstance(a, dict) else str(a) for a in etat.get("anomalies", [])],
@@ -245,19 +269,29 @@ class FenetreSupervision(QMainWindow):
                 texte += f" · {resultat['donnees'].get('solde_centimes')} ¢"
             if resultat and resultat["donnees"].get("recu", {}).get("deja_traitee"):
                 texte += " · déjà traitée"
+            details = str(resultat["donnees"]) if resultat else ""
             for colonne, valeur in enumerate((demande["id_commande"], demande["commande"], texte)):
-                item = QTableWidgetItem(valeur)
-                if resultat:
-                    item.setToolTip(str(resultat["donnees"]))
-                self.demandes.setItem(ligne, colonne, item)
+                # Garder les cellules existantes pendant les rafraichissements
+                # periodiques, y compris pendant un clic de l'utilisateur.
+                item = self.demandes.item(ligne, colonne)
+                if item is None:
+                    item = QTableWidgetItem(valeur)
+                    self.demandes.setItem(ligne, colonne, item)
+                elif item.text() != valeur:
+                    item.setText(valeur)
+                if item.toolTip() != details:
+                    item.setToolTip(details)
             if demande["id_commande"] == self._selection:
                 ligne_selection = ligne
         if ligne_selection is not None:
-            self.demandes.selectRow(ligne_selection)
+            selection = self.demandes.selectionModel().selectedRows()
+            if [index.row() for index in selection] != [ligne_selection]:
+                self.demandes.selectRow(ligne_selection)
         else:
             self.demandes.clearSelection()
             self._selection = None
         self.demandes.blockSignals(False)
+        self._actualiser_reprise()
 
     def closeEvent(self, evenement):
         if self._termine:
@@ -272,6 +306,7 @@ class FenetreSupervision(QMainWindow):
 
     def _arrete(self):
         self._termine = True
+        self._donnees_fraiches = False
         if self._fermeture:
             self.close()
         else:
@@ -279,3 +314,5 @@ class FenetreSupervision(QMainWindow):
             self.consulter.setEnabled(False)
             self.crediter.setEnabled(False)
             self.reprendre.setEnabled(False)
+            for bouton in self.commandes_service.values():
+                bouton.setEnabled(False)
