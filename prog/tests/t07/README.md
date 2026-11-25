@@ -2,10 +2,10 @@
 
 Ces tests compilent le **vrai code** de `prog/stm32_bas` avec un faux HAL (`fake_hal/`, `fake_main/`). Aucun matériel n'est nécessaire. Il faut un `gcc` pour PC : MSYS2/MinGW, WSL ou Linux.
 
-| Fichier | Ce qui est vérifié | Résultat (24 nov. 2026) |
+| Fichier | Ce qui est vérifié | Résultat (25 nov. 2026) |
 |---|---|---|
 | `test_rgb_led_chain.c` | Trame APA102 (début, DEL en B-G-R, fin), refus des paramètres invalides, DMA occupé, envoi bloquant sans DMA | 31/31 |
-| `test_t07_del.c` | Commandes 0x340 et 0x130, réponses 0x341/0x342/0x350–0x352, refus (place 0 ou 15, niveau 3, mode 2, DLC), places d'un autre nœud ignorées, clignotement 1 Hz, perte et retour du RPi, SPI occupé, configurations BAS, HAUT et BORNE | 56/56 |
+| `test_t07_del.c` | Commandes 0x340 et 0x130, réponses selon la fonction (0x341 places 1–7, 0x342 places 8–14, 0x350/0x351/0x352 niveaux 0/1/2), refus (place 0 ou 15, niveau 3, mode 2, DLC, niveau 0 sans DEL sur le BAS), places et niveaux d'un autre nœud ignorés, clignotement 1 Hz, perte et retour du RPi, SPI occupé, configurations BAS (places 1–7), BORNE (places 8–14 + niveau 1) et HAUT (niveau 2), configurations invalides refusées | 67/67 |
 | `test_noeud.c` | Heartbeat 0x042 toutes les 500 ms, détection du RPi (0x040), perte après 1,5 s, aiguillage des commandes vers T07 | 13/13 |
 
 Depuis ce dossier (`prog/tests/t07`) :

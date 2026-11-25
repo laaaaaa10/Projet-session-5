@@ -10,21 +10,29 @@
  * (places, niveau d'éclairage, identifiants de réponse) vient de
  * T07_ConfigDuNoeud(), choisie par ESA_NOEUD (esa_noeud.h).
  *
+ * Répartition (décidée par l'équipe le 2026-11-25) : une PCB-03 par STM32.
+ *   BAS   : places 1 à 7 ; pas d'éclairage (niveau 0 refusé)
+ *   BORNE : places 8 à 14 + éclairage du niveau 1
+ *   HAUT  : éclairage du niveau 2 seulement
+ *
  * Commandes reçues :
  *   0x340 DEL_PLACE_CMD  [seq, place 1-14, R, G, B, mode 0 fixe / 1 clignotement 1 Hz]
  *   0x130 ECLAIRAGE_CMD  [seq, niveau 0-2, R, G, B]
- * Réponses (DLC 3) : [seq, place ou niveau, 0 refusé / 1 appliqué]
- *   0x341 / 0x342 (DEL BAS / HAUT), 0x350 / 0x351 / 0x352 (éclairage BAS / HAUT / BORNE)
+ * Réponses (DLC 3) : [seq, place ou niveau, 0 refusé / 1 appliqué], identifiant
+ * selon la fonction (voir esa_can_ids.h) :
+ *   0x341 places 1-7, 0x342 places 8-14, 0x350 / 0x351 / 0x352 éclairage niveau 0 / 1 / 2
  *
  * Règles :
  *   - une place ou un niveau valide qui appartient à un autre nœud est ignoré, sans réponse ;
  *   - une valeur hors plage (place 0 ou > 14, niveau > 2, mode > 1) ou un DLC
  *     incorrect est refusé (réponse « 0 ») et ne change rien ;
+ *   - un niveau attribué au nœud mais sans DEL d'éclairage (niveau 0 sur le BAS)
+ *     est refusé ;
  *   - le module n'interprète pas les états logiques : il applique les couleurs
  *     transmises par le RPi.
  *
  * Comportement sûr :
- *   - au démarrage : témoins éteints, éclairage blanc modéré ;
+ *   - au démarrage : témoins éteints, éclairage blanc modéré (s'il y en a) ;
  *   - perte du RPi (signalée par T07_SignalerRpi(false)) : témoins en jaune
  *     clignotant, éclairage conservé ; chaque place revient à la normale
  *     quand le RPi lui renvoie une consigne.
@@ -56,11 +64,11 @@ typedef struct
     uint16_t       id_reponse_del;        /* 0x341 / 0x342 ; 0 si le nœud n'a pas de témoins */
     uint16_t       id_reponse_eclairage;  /* 0x350 / 0x351 / 0x352 */
     uint8_t        premiere_place;        /* numéro CAN de la 1re place du nœud (1 ou 8) */
-    uint8_t        nb_places;             /* 7, ou 0 pour la borne */
+    uint8_t        nb_places;             /* 7, ou 0 si le nœud n'a pas de témoins */
     const uint8_t *indice_place;          /* indice dans la chaîne de la DEL de chaque place */
-    uint8_t        niveau_eclairage;      /* 0, 1 ou 2 */
+    uint8_t        niveau_eclairage;      /* 0, 1 ou 2 : niveau dont le nœud répond */
     const uint8_t *indices_eclairage;     /* DEL d'éclairage dans la chaîne */
-    uint8_t        nb_eclairage;
+    uint8_t        nb_eclairage;          /* 0 : niveau sans DEL, ses commandes sont refusées */
     uint8_t        nb_del;                /* longueur de la chaîne */
 } T07_Config;
 
@@ -86,7 +94,7 @@ typedef struct
     uint32_t reponses_non_envoyees;
 } T07_Stats;
 
-/* Configurations des trois nœuds (tables provisoires : à valider sur la maquette). */
+/* Configurations des trois nœuds. */
 extern const T07_Config T07_CONFIG_BAS;
 extern const T07_Config T07_CONFIG_HAUT;
 extern const T07_Config T07_CONFIG_BORNE;
