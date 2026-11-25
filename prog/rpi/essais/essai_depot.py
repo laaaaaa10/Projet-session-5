@@ -5,17 +5,20 @@ barrière, branchée sur les modules réels déjà livrés par l'équipe :
   T02 (pont Qt)  : lecture de la carte RFID et solde du compte
   T03            : choix de la place, confirmation en 60 s, barrière
   T05            : billet imprimé par le STM32 Borne (CAN)
+  T11            : ascenseur (STM32 Haut) jusqu'à la place, confirmation IR,
+                   début de facturation
 
   Accueil → carte RFID (T02) → place (T03) → confirmation (T03)
           → billet (T05) → confirmation du billet → barrière ouverte (T03)
-          → véhicule parti (IR) → barrière fermée → T11 prend le relais
+          → véhicule sur la rampe (IR entrée absent) → barrière fermée
+          → T11 : prise, transport, dépôt, confirmation IR, retour au niveau 0
 
 Les tâches non livrées sont simulées dans cette fenêtre : T01 (fenêtre
 principale), T04 (création de la transaction), T06 (IR), T13 (hors service).
 
 Options :
   --lecteur-reel     lecteur RFID du Pi (sinon boutons « carte » simulés)
-  --simul-can        STM32 Borne simulé sur un bus virtuel (sinon can0)
+  --simul-can        STM32 Borne et ascenseur simulés sur un bus virtuel (sinon can0)
   --simul-barriere   servo simulé (sinon PCA9685)
 
 Projet ESA - 243-557 - Automne 2026
@@ -28,7 +31,7 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # racine prog/rpi
 
-from PyQt6.QtCore import QTimer                                          # noqa: E402
+from PyQt6.QtCore import QEventLoop, QTimer                                          # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel,  # noqa: E402
                              QMainWindow, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
@@ -39,8 +42,10 @@ from interface.qt.pages_reservation import (PageCarte,                   # noqa:
 from interface.qt.pont_t02 import PontT02Qt                              # noqa: E402
 from modules.barriere import CommandeBarriere                            # noqa: E402
 from modules.billets import creer_gestion_billets                        # noqa: E402
+from modules.depot import creer_gestion_depot                            # noqa: E402
 from modules.reservation import GestionReservation                       # noqa: E402
-from modules.stationnement import EtatPlace, ModeleStationnement, Presence  # noqa: E402
+from modules.stationnement import (EtatPlace, ModeleStationnement,      # noqa: E402
+                                   PLACES_PAR_ETAGE, Presence)
 
 CARTES_DEMO = {"Carte Jason": "11008827F9", "Carte Lucia": "1100823734",
                "Carte inconnue": "AABBCCDDEE"}
@@ -62,7 +67,7 @@ def main():
     # --- Simulations des tâches non livrées -------------------------------------
     case_ir = QCheckBox("Véhicule devant la barrière (IR, T06)")
     case_hs = QCheckBox("Hors service (T13)")
-    sessions = {"compteur": 0, "id": None, "cartes": {}}
+    sessions = {"compteur": 0, "id": None, "cartes": {}, "depot": None}   # depot : (transaction, place)
 
     def conditions_confirmation():
         if case_hs.isChecked():
@@ -86,15 +91,24 @@ def main():
                                 verifier_securite=conditions_barriere)
     barriere.fermer()
 
-    simulateur = None
+    simulateurs = []
+    simul_ascenseur = None
     if "--simul-can" in sys.argv:
+        from exemples.simulateur_ascenseur import SimulateurAscenseur
         from exemples.simulateur_stm32_borne import SimulateurStm32Borne
         service_can = ServiceCAN(interface="virtual", channel="esa")
-        simulateur = SimulateurStm32Borne(channel="esa")
-        simulateur.demarrer()
+        simul_ascenseur = SimulateurAscenseur(channel="esa")
+        simulateurs = [SimulateurStm32Borne(channel="esa"), simul_ascenseur]
+        for simulateur in simulateurs:
+            simulateur.demarrer()
     else:
         service_can = ServiceCAN()
     billets = creer_gestion_billets(service_can)
+
+    def facturation(transaction_id, horodatage):                  # T04/T12 simulé
+        print(f"[T04] facturation de {transaction_id:06d} démarrée à {horodatage:%H:%M:%S}")
+
+    depot = creer_gestion_depot(service_can, modele, facturation)
     try:
         service_can.demarrer()
     except Exception as erreur:
@@ -131,6 +145,7 @@ def main():
         pages.setCurrentWidget(page_choix)
 
     def depot_confirme(transaction_id, numero_place):
+        sessions["depot"] = (transaction_id, numero_place)
         pages.setCurrentWidget(page_billet)
         page_billet.afficher_billet(transaction_id, numero_place)
 
@@ -144,7 +159,16 @@ def main():
     def ir_change(present):
         if not present and barriere.est_ouverte():
             barriere.fermer()
-            print("[T03] véhicule parti : barrière fermée (T11 prend le relais)")
+            print("[T03] véhicule sur la rampe : barrière fermée")
+            if sessions["depot"] is not None:
+                transaction_id, numero_place = sessions["depot"]
+                sessions["depot"] = None
+                niveau = 1 + (numero_place - 1) // PLACES_PAR_ETAGE
+                position = 1 + (numero_place - 1) % PLACES_PAR_ETAGE
+                if depot.demarrer(transaction_id, niveau, position):
+                    print(f"[T11] dépôt {transaction_id:06d} : niveau {niveau}, position {position}")
+                else:
+                    print(f"[T11] dépôt refusé : {depot.derniere_erreur}")
 
     accueil.clicked.connect(nouvelle_session)
     page_carte.annulee.connect(retour_accueil)
@@ -159,9 +183,21 @@ def main():
 
     # --- Panneau d'essai --------------------------------------------------------------
     etat_barriere = QLabel("")
+    etat_t11 = QLabel("T11 : inactif")
+    dernier_etat = {"t11": ""}
+
+    def rafraichir():
+        depot.mettre_a_jour()
+        etat_barriere.setText(f"Barrière : {barriere.etat().value}")
+        texte = depot.obtenir_etat()
+        if texte != dernier_etat["t11"]:
+            dernier_etat["t11"] = texte
+            etat_t11.setText(f"T11 : {texte}")
+            print(f"[T11] {texte}")
+
     minuterie = QTimer()
-    minuterie.timeout.connect(lambda: etat_barriere.setText(f"Barrière : {barriere.etat().value}"))
-    minuterie.start(200)
+    minuterie.timeout.connect(rafraichir)
+    minuterie.start(100)
 
     panneau = QHBoxLayout()
     if not lecteur_reel:
@@ -173,9 +209,20 @@ def main():
     panneau.addWidget(case_hs)
     panneau.addWidget(etat_barriere)
 
+    panneau_t11 = QHBoxLayout()                    # 2e ligne : ascenseur (T11)
+    panneau_t11.addWidget(etat_t11, 1)
+    if simul_ascenseur is not None:
+        case_sans_ir = QCheckBox("Place : pas de détection IR")
+        case_sans_ir.toggled.connect(lambda coche: setattr(simul_ascenseur, "ir_actif", not coche))
+        panneau_t11.addWidget(case_sans_ir)
+    bouton_acquitter = QPushButton("Acquitter défaut T11")
+    bouton_acquitter.clicked.connect(depot.acquitter_defaut)
+    panneau_t11.addWidget(bouton_acquitter)
+
     centre = QWidget()
     disposition = QVBoxLayout(centre)
     disposition.addLayout(panneau)
+    disposition.addLayout(panneau_t11)
     disposition.addWidget(pages)
     fenetre = QMainWindow()
     fenetre.setWindowTitle("Essai dépôt : T02 + T03 + T05")
@@ -188,10 +235,16 @@ def main():
     code = app.exec()
 
     # --- Libération du matériel ----------------------------------------------------------
-    pont.arreter()
+    if pont.en_cours:                    # arrêt asynchrone de T02 : attendre « arrete »
+        boucle = QEventLoop()
+        pont.arrete.connect(boucle.quit)
+        QTimer.singleShot(3000, boucle.quit)
+        pont.arreter()
+        boucle.exec()
+    depot.arreter()
     barriere.liberer()
     service_can.arreter()
-    if simulateur:
+    for simulateur in simulateurs:
         simulateur.arreter()
     donnees.cleanup()
     sys.exit(code)
