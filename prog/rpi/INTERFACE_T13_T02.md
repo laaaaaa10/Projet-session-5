@@ -3,7 +3,7 @@
 T13 reçoit les commandes du PC par MQTT. T02 reste responsable des comptes,
 des montants en centimes et de la persistance. Cet accès Python local est prêt
 à être fourni au responsable de T13 ; le transport MQTT et l'application PC
-restent à brancher dans son module.
+sont amorcés dans [../pc/README.md](../pc/README.md) (premier jalon T13).
 
 ## Contrat public
 
@@ -74,19 +74,15 @@ un paiement a eu lieu depuis. Utiliser `consulter_solde()` ou `lister_soldes()`
 pour rafraîchir le PC. `retrouver_resultat_credit()` ne consomme aucune file et
 rejette l'ID d'un paiement ; il ne prend pas les résultats destinés à T04.
 
-## Branchement du futur module
+## Branchement du module
 
 `main.py` construit un seul `ServiceComptes` partagé avec T03 et T04 et fournit
 `AccesComptes` à `application/integration_t13.py`.
-Pour brancher le futur module, adapter uniquement cette fabrique, par exemple :
-
-```python
-from api.comptes import InterfaceComptes, ModuleT13
-
-def creer_module_t13(comptes: InterfaceComptes) -> ModuleT13:
-    from modules.supervision import SupervisionT13  # futur module du responsable
-    return SupervisionT13(comptes=comptes)
-```
+La fabrique est désormais optionnelle : `ESA_T13_ACTIVER=1` et une configuration
+MQTT explicite activent `SupervisionT13`. Sans cette variable, elle retourne
+`None`. Voir [la fabrique](application/integration_t13.py) : elle assemble le
+transport et `SupervisionT13` avec l'accès partagé, puis démarre le réseau
+en arrière-plan.
 
 Le module doit fournir `actualiser()`. La boucle de borne l'appelle après T03
 et T04. Cette méthode traite les commandes disponibles puis rend la main :
@@ -94,8 +90,9 @@ aucune attente de connexion ou de réponse réseau dans la boucle RFID.
 Une file entre les callbacks MQTT et `actualiser()` peut être gérée dans T13.
 Les accès CSV restent synchrones et peuvent prendre le temps d'une écriture.
 
-La fabrique livrée retourne `None` jusqu'à ce que le vrai module soit prêt.
-Elle ne lance aucun client MQTT et n'applique aucun crédit automatiquement.
+La fabrique lance le client MQTT uniquement sur activation explicite et
+n'applique aucun crédit au démarrage. Les demandes sont traitées dans
+`actualiser()`. `fermer()` libère le client lors de l'arrêt console ou Qt.
 T13 valide les commandes reçues et leur accès côté réseau ; cet objet local
 ne fournit pas d'authentification MQTT.
 

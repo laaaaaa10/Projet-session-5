@@ -53,8 +53,9 @@ est prêt dans `application/integration_t04.py` ; il suffit d'y retourner le fut
 module, qui reçoit l'API de paiement et fournit `actualiser()`.
 Aucun protocole CAN/MQTT de paiement n'est inventé ici.
 L'accès consultation/crédit de T13 est décrit dans
-[INTERFACE_T13_T02.md](INTERFACE_T13_T02.md). Sa fabrique retourne `None`
-jusqu'au branchement du vrai module de supervision.
+[INTERFACE_T13_T02.md](INTERFACE_T13_T02.md). Le premier jalon MQTT/PC est décrit
+dans [../pc/README.md](../pc/README.md). Sa fabrique retourne `None` par défaut ;
+`ESA_T13_ACTIVER=1` et une configuration explicite activent le raccordement.
 
 Le raccordement PyQt6, les commandes de lancement et les signaux destinés au
 futur écran sont décrits dans [INTERFACE_GRAPHIQUE_T02.md](INTERFACE_GRAPHIQUE_T02.md).

@@ -1,0 +1,2 @@
+-r ../requirements-t13.txt
+PyQt6>=6.4,<7
