@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget,
 )
 
+from rpi.modules.lecteur_nfc_rfid import numero_badge
+
 from pc.holographie import (EmblemeESA, FondConsole, PanneauHolographique,
                             charger_polices, icone_bulle)
 from pc.visuels import (ACTIONS, COULEURS, ETATS, PLACES, STYLE, CadranPlaces,
@@ -120,7 +122,6 @@ class FenetreSupervision(QMainWindow):
         self.message.hide()
         principal.addWidget(self.message)
         pied = QHBoxLayout()
-        pied.addWidget(etiquette("PC  ↔︎  BROKER MQTT  ↔︎  PI", "surTitre"))
         pied.addStretch()
         self.actualisation = etiquette("En attente du premier état", "petit")
         pied.addWidget(self.actualisation)
@@ -271,11 +272,11 @@ class FenetreSupervision(QMainWindow):
         ligne.setSpacing(18)
         liste, interieur = panneau("Cartes enregistrées")
         self.recherche_comptes = QLineEdit()
-        self.recherche_comptes.setPlaceholderText("Rechercher un identifiant de carte…")
-        self.recherche_comptes.setAccessibleName("Rechercher une carte")
+        self.recherche_comptes.setPlaceholderText("Rechercher un numéro de badge…")
+        self.recherche_comptes.setAccessibleName("Rechercher un numéro de badge")
         self.recherche_comptes.textChanged.connect(self._afficher_comptes)
         interieur.addWidget(self.recherche_comptes)
-        self.comptes = tableau(["Carte RFID", "Solde"])
+        self.comptes = tableau(["Numéro du badge", "Solde"])
         self.comptes.setMinimumHeight(260)
         self.comptes.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.comptes.itemSelectionChanged.connect(self._choisir_carte)
@@ -285,12 +286,12 @@ class FenetreSupervision(QMainWindow):
         ligne.addWidget(liste, 3)
         recharge, interieur = panneau("Solde & crédit")
         recharge.setMinimumWidth(300)
-        interieur.addWidget(etiquette("Sélectionne une carte ou saisis son identifiant complet.", "secondaire", True))
-        interieur.addWidget(etiquette("IDENTIFIANT DE CARTE", "surTitre"))
+        interieur.addWidget(etiquette("Sélectionne un compte ou saisis le numéro imprimé sur le badge.", "secondaire", True))
+        interieur.addWidget(etiquette("NUMÉRO DU BADGE", "surTitre"))
         self.carte = QLineEdit()
-        self.carte.setMaxLength(64)  # Ne pas tronquer un identifiant trop long en carte valide.
-        self.carte.setPlaceholderText("10 caractères · ex. 11008827F9")
-        self.carte.setAccessibleName("Identifiant de carte RFID")
+        self.carte.setMaxLength(64)  # Ne pas tronquer un numéro trop long en numéro valide.
+        self.carte.setPlaceholderText("10 chiffres · ex. 0008923129")
+        self.carte.setAccessibleName("Numéro imprimé sur le badge")
         self.carte.textChanged.connect(self._carte_modifiee)
         interieur.addWidget(self.carte)
         interieur.addWidget(etiquette("SOLDE COURANT REÇU", "surTitre"))
@@ -415,8 +416,21 @@ class FenetreSupervision(QMainWindow):
     def basculer_plein_ecran(self):
         self.showNormal() if self.isFullScreen() else self.showFullScreen()
 
+    def _carte_saisie(self):
+        """Retrouve l'ID complet reçu du Pi, sans reconstruire de préfixe UART."""
+        numero = self.carte.text().strip()
+        if re.fullmatch(r"[0-9]{10}", numero) is None:
+            return None, "Numéro du badge requis : les 10 chiffres imprimés."
+        correspondances = [identifiant for identifiant in self._soldes
+                           if numero_badge(identifiant) == numero]
+        if not correspondances:
+            return None, "Ce numéro ne correspond à aucun compte reçu."
+        if len(correspondances) != 1:
+            return None, "Plusieurs comptes portent ce numéro : opération bloquée. Consulte le diagnostic."
+        return correspondances[0], ""
+
     def _carte_modifiee(self):
-        identifiant = self.carte.text().strip().upper()
+        identifiant, _ = self._carte_saisie()
         self.solde_selectionne.setText(centimes(self._soldes.get(identifiant)))
         self._actualiser_commandes()
         self._resultat_compte()
@@ -427,19 +441,22 @@ class FenetreSupervision(QMainWindow):
             self.carte.setText(lignes[0].data())
 
     def _afficher_comptes(self):
-        filtre = self.recherche_comptes.text().strip().upper()
-        soldes = [(carte, solde) for carte, solde in sorted(self._soldes.items()) if filtre in carte]
+        filtre = self.recherche_comptes.text().strip()
+        soldes = sorted((numero_badge(carte), carte, solde)
+                        for carte, solde in self._soldes.items()
+                        if filtre in numero_badge(carte))
         signature = (tuple(soldes), filtre)
         if signature == self._signature_comptes:
             return
         self._signature_comptes = signature
         selection = self.comptes.selectionModel().selectedRows(0)
-        identifiant = selection[0].data() if selection else None
+        identifiant = selection[0].data(Qt.ItemDataRole.UserRole) if selection else None
         self.comptes.blockSignals(True)
         self.comptes.setRowCount(len(soldes))
         self.comptes.clearSelection()
-        for ligne, (carte, solde) in enumerate(soldes):
-            cellule(self.comptes, ligne, 0, carte)
+        for ligne, (numero, carte, solde) in enumerate(soldes):
+            item = cellule(self.comptes, ligne, 0, numero)
+            item.setData(Qt.ItemDataRole.UserRole, carte)
             cellule(self.comptes, ligne, 1, centimes(solde))
             if carte == identifiant:
                 self.comptes.selectRow(ligne)
@@ -453,7 +470,8 @@ class FenetreSupervision(QMainWindow):
             bouton.setEnabled(actif and disponibilite.get("service", False))
         if not hasattr(self, "consulter"):
             return
-        valide = re.fullmatch(r"[0-9A-Fa-f]{10}", self.carte.text().strip()) is not None
+        identifiant, erreur = self._carte_saisie()
+        valide = identifiant is not None
         disponible = actif and disponibilite.get("T02", False)
         attente = self._credit_soumis or any(not d["termine"] and d["demande"]["commande"] == "AJOUTER_CREDIT"
                                            for d in self._vue["demandes"])
@@ -462,7 +480,7 @@ class FenetreSupervision(QMainWindow):
         self.aide_compte.setText("Données à jour requises pour envoyer une demande." if not actif else
                                "La gestion des comptes est indisponible sur la borne." if not disponible else
                                "Crédit en attente. Consulte Activité pour retrouver la demande." if attente else
-                               "Identifiant requis : 10 caractères hexadécimaux." if not valide else
+                               erreur if not valide else
                                "Le crédit sera confirmé par la borne.")
         if hasattr(self, "reprendre"):
             self._actualiser_reprise()
@@ -471,7 +489,10 @@ class FenetreSupervision(QMainWindow):
         bouton = self.crediter if action == "AJOUTER_CREDIT" else self.consulter
         if not bouton.isEnabled():
             return
-        params = {"id_uart": self.carte.text().strip().upper()}
+        identifiant, _ = self._carte_saisie()
+        if identifiant is None:
+            return
+        params = {"id_uart": identifiant}
         if action == "AJOUTER_CREDIT":
             params["montant_centimes"] = self.montant.value()
             self._credits_avant = {d["demande"]["id_commande"] for d in self._vue["demandes"]}
@@ -510,7 +531,7 @@ class FenetreSupervision(QMainWindow):
         details = ["Référence : " + demande["id_commande"]]
         params = demande.get("parametres") or {}
         if params.get("id_uart"):
-            details.append("Carte : " + params["id_uart"])
+            details.append("Badge : " + numero_badge(params["id_uart"]))
         if "montant_centimes" in params:
             details.append("Crédit demandé : " + centimes(params["montant_centimes"]))
         if resultat:
@@ -526,8 +547,9 @@ class FenetreSupervision(QMainWindow):
             self.pont.requete.emit("REPRENDRE_DEMANDE", {"id_commande": self._selection})
 
     def _resultat_compte(self):
-        carte = self.carte.text().strip().upper()
-        entree = next((d for d in self._vue["demandes"] if d["demande"].get("parametres", {}).get("id_uart") == carte), None)
+        carte, _ = self._carte_saisie()
+        entree = next((d for d in self._vue["demandes"]
+                       if carte is not None and d["demande"].get("parametres", {}).get("id_uart") == carte), None)
         texte, couleur = resultat_lisible(entree["reponse"]) if entree else ("", "neutre")
         self.resultat_compte.setText(texte)
         ton(self.resultat_compte, couleur)
@@ -578,7 +600,8 @@ class FenetreSupervision(QMainWindow):
             label.setText(str(inconnus) if cle == "INCONNU" else ("—" if inconnus == 14 else str(valeurs.count(cle))))
         self._soldes = etat.get("soldes") or {}
         self._afficher_comptes()
-        self.solde_selectionne.setText(centimes(self._soldes.get(self.carte.text().strip().upper())))
+        identifiant, _ = self._carte_saisie()
+        self.solde_selectionne.setText(centimes(self._soldes.get(identifiant)))
         self.etat_comptes.setText("Comptes indisponibles." if etat.get("soldes") is None else
                                   f"{len(self._soldes)} carte(s) reçue(s) · sélectionne une ligne." + (" Données périmées." if not frais else ""))
         if self._credit_soumis and any(d["demande"]["commande"] == "AJOUTER_CREDIT" and

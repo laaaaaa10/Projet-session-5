@@ -33,7 +33,7 @@ au commit `797fda3`.
 | Page | Informations et actions |
 | --- | --- |
 | Vue d'ensemble | État de service, 14 places réparties en deux niveaux, présence IR distincte de l'état logique, anomalies et dernière demande |
-| Comptes RFID | Filtre par identifiant, sélection d'une carte, solde reçu, consultation et crédit en centimes entiers |
+| Comptes RFID | Numéro imprimé sur le badge, recherche et sélection d’un compte, solde reçu, consultation et crédit en centimes entiers |
 | Activité | Demandes PC, résultat en cours ou final, détail de la référence, renvoi avec le même ID ; onglet transactions de la borne |
 | Statistiques | État d'attente explicite, puis informations réellement transmises par la borne |
 | Diagnostic | Configuration du broker, disponibilités et instantané technique reçu en lecture seule |
@@ -51,8 +51,23 @@ places deviennent neutres. Les données et le journal restent consultables,
 mais les envois sont désactivés jusqu'à la resynchronisation. Le bandeau
 distingue la perte du broker et l'attente du Pi avec broker encore connecté.
 
-Le crédit nécessite exactement dix caractères hexadécimaux. Un identifiant
-trop long n'est pas tronqué en identifiant valide. Dès le clic, une protection
+La liste, la recherche, la saisie et les détails des demandes affichent le
+**numéro décimal imprimé sur le badge**, sur dix chiffres avec ses zéros initiaux.
+Les correspondances déjà validées dans [T02](../rpi/README_COMPTES.md) sont :
+
+| Compte | Numéro affiché et saisi | ID complet conservé dans les échanges |
+| --- | --- | --- |
+| Jason Duval | `0008923129` | `11008827F9` |
+| Lucia Caminos | `0008533812` | `1100823734` |
+
+La console réutilise la fonction pure `numero_badge()` du lecteur RFID ; elle
+n'ouvre ni UART ni GPIO. Elle retrouve l'ID complet parmi les comptes reçus du
+Pi, sans deviner de préfixe. Un numéro inconnu ou correspondant à plusieurs
+comptes ne peut pas être crédité. L'ID complet reste la clé du compte côté Pi
+et du journal ; aucun compte ni solde n'est migré. Le checksum de la trame
+RFID est déjà retiré avant la transmission de cet ID.
+
+Un numéro trop long n'est pas tronqué en numéro valide. Dès le clic, une protection
 locale bloque un second crédit pendant le passage vers le journal du
 travailleur. Les protections durables et l'idempotence restent dans le client
 et le Pi. Une acceptation s'affiche « En cours », jamais « Terminée ».
@@ -74,6 +89,8 @@ compteurs et les places deviennent neutres lorsque les données sont périmées.
 Les formes, pictogrammes et reflets sont dessinés par Qt. Aucun extrait du film,
 image téléchargée ou accès réseau supplémentaire n'est nécessaire au lancement.
 Le décor est statique ; il n'ajoute pas de boucle d'animation au traitement MQTT.
+Le rappel « PC ↔ broker MQTT ↔ Pi » a été retiré du pied de page. Le bandeau
+de connexion reste présent en haut.
 
 Captures du vrai code Qt avec des **états de test hors réseau**. Ces états ne
 sont pas injectés dans l'application normale.
@@ -89,12 +106,13 @@ simulation dans l'état hors service.
 
 ## Validation et limites
 
-Au 25 novembre 2026 : **212 tests réussis, aucun ignoré**, avec Qt hors écran et
+Au 26 novembre 2026 : **215 tests réussis, aucun ignoré**, avec Qt hors écran et
 Mosquitto local. La suite couvre notamment le vrai parcours de crédit MQTT,
+la saisie du numéro imprimé avec crédit du compte UART correspondant,
 le renvoi sans double crédit, les coupures/reconnexions et les commandes de
 service simulées. Les nouveaux essais de console vérifient aussi le plein
 écran au lancement, F11, Quitter, la saisie RFID, le double clic, la sélection
-conservée, les états inconnus et les pages sans données.
+conservée, les numéros de badges inconnus ou ambigus, les états inconnus et les pages sans données.
 
 ```bash
 ESA_TEST_BROKER=1 QT_QPA_PLATFORM=offscreen \

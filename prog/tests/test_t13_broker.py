@@ -136,7 +136,7 @@ class TestsBrokerT13(BancComptes):
         fenetre.show()
         pont.thread.start()
         fenetre.afficher_page(1)
-        fenetre.carte.setText(JASON)
+        fenetre.carte.setText("0008923129")  # Numéro imprimé ; le Pi doit recevoir JASON.
         self.attendre(lambda: fenetre.crediter.isEnabled(), app=app)
         fenetre.crediter.click()
         self.attendre(lambda: self.solde() == 2500 and fenetre.crediter.isEnabled(), app=app)

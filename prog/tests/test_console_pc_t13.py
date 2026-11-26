@@ -71,16 +71,17 @@ class TestsConsolePC(unittest.TestCase):
         self.app.processEvents()
         rectangle = f.comptes.visualItemRect(f.comptes.item(1, 0))
         QTest.mouseClick(f.comptes.viewport(), Qt.MouseButton.LeftButton, pos=rectangle.center())
-        self.assertEqual(f.carte.text(), "11008827F9")
+        self.assertEqual(f.carte.text(), "0008923129")
         self.assertEqual(f.solde_selectionne.text(), "2 500 ¢")
         self.vue["etat"]["soldes"]["11008827F9"] = 3000
         f.actualiser(self.vue)
-        self.assertEqual(f.carte.text(), "11008827F9")
+        self.assertEqual(f.carte.text(), "0008923129")
         self.assertEqual(f.solde_selectionne.text(), "3 000 ¢")
         self.assertEqual(len(f.comptes.selectionModel().selectedRows()), 1)
-        f.recherche_comptes.setText("827f9")
+        f.recherche_comptes.setText("8923")
         self.assertEqual(f.comptes.rowCount(), 1)
-        self.assertEqual(f.comptes.item(0, 0).text(), "11008827F9")
+        self.assertEqual(f.comptes.item(0, 0).text(), "0008923129")
+        self.assertEqual(f.comptes.item(0, 0).data(Qt.ItemDataRole.UserRole), "11008827F9")
 
     def test_identifiant_et_credit_double_clic_avec_vue_ancienne(self):
         f = self.fenetre
@@ -88,9 +89,9 @@ class TestsConsolePC(unittest.TestCase):
         self.assertFalse(f.consulter.isEnabled())
         f.crediter.click()
         self.assertEqual(self.requetes, [])
-        f.carte.setText("11008827F9A")
+        f.carte.setText("00089231290")
         self.assertFalse(f.crediter.isEnabled())
-        f.carte.setText("11008827f9")
+        f.carte.setText("0008923129")
         f.montant.setValue(525)
         f.crediter.click()
         # Le prochain instantané peut précéder l'insertion dans le journal.
@@ -109,9 +110,59 @@ class TestsConsolePC(unittest.TestCase):
         self.assertTrue(f.crediter.isEnabled())
         self.assertIn("Crédit ajouté", f.resultat_compte.text())
 
+    def test_numero_imprime_retrouve_l_id_recu_sans_inventer_de_prefixe(self):
+        f = self.fenetre
+        self.vue["etat"]["soldes"] = {"22008827F9": 700}
+        f.actualiser(self.vue)
+        self.assertEqual(f.comptes.item(0, 0).text(), "0008923129")
+        f.carte.setText("0008923129")
+        self.assertEqual(f.solde_selectionne.text(), "700 ¢")
+        f.consulter.click()
+        self.assertEqual(self.requetes, [("CONSULTER_SOLDE", {"id_uart": "22008827F9"})])
+
+    def test_numero_inconnu_ou_ambigu_ne_credite_aucun_compte(self):
+        f = self.fenetre
+        for numero in ("0008916781", "11008827F9", "1100823734", "8923129", "０００８９２３１２９"):
+            f.carte.setText(numero)
+            self.assertFalse(f.consulter.isEnabled(), numero)
+            self.assertFalse(f.crediter.isEnabled(), numero)
+            f.crediter.click()
+        f.carte.setText("0008923129")
+        self.assertTrue(f.crediter.isEnabled())
+        self.vue["etat"]["soldes"]["22008827F9"] = 600
+        f.actualiser(self.vue)
+        self.assertFalse(f.crediter.isEnabled())
+        self.assertIn("Plusieurs comptes", f.aide_compte.text())
+        self.assertEqual(f.solde_selectionne.text(), "—")
+        f.comptes.selectRow(1)
+        f.crediter.click()
+        self.assertFalse(f.consulter.isEnabled())
+        self.assertEqual(self.requetes, [])
+        self.vue["etat"]["soldes"] = {}
+        f.actualiser(self.vue)
+        self.assertFalse(f.crediter.isEnabled())
+        self.assertIn("aucun compte", f.aide_compte.text())
+
+    def test_details_et_resultat_restent_lies_au_compte_complet(self):
+        f = self.fenetre
+        f.carte.setText("0008923129")
+        self.vue["demandes"] = [demande("a")]
+        f.actualiser(self.vue)
+        f.demandes.selectRow(0)
+        self.assertIn("Badge : 0008923129", f.details_demande.text())
+        self.assertNotIn("11008827F9", f.details_demande.text())
+        self.assertIn("Crédit ajouté", f.resultat_compte.text())
+        f.carte.setText("0008533812")
+        self.assertEqual(f.resultat_compte.text(), "")
+        self.vue["demandes"] = [{"demande": {"id_commande": "t13:demande-test", "commande": "METTRE_HORS_SERVICE", "parametres": {}},
+                                "reponse": {"phase": "TERMINEE", "code": "HORS_SERVICE", "donnees": {}}, "termine": True}]
+        f.carte.clear()
+        f.actualiser(self.vue)
+        self.assertEqual(f.resultat_compte.text(), "")
+
     def test_coupure_interdit_envoi_et_laisse_consulter_les_pages(self):
         f = self.fenetre
-        f.carte.setText("11008827F9")
+        f.carte.setText("0008923129")
         for statut in ("PERIMEES", "DECONNECTE"):
             f.actualiser(dict(self.vue, statut=statut))
             for index, bouton in enumerate(f.navigation):
@@ -146,7 +197,7 @@ class TestsConsolePC(unittest.TestCase):
 
     def test_erreur_credit_libere_la_saisie_sans_relancer_de_demande(self):
         f = self.fenetre
-        f.carte.setText("11008827F9")
+        f.carte.setText("0008923129")
         f.crediter.click()
         self.pont.erreur.emit("Journal indisponible")
         self.assertIn("Journal indisponible", f.message.text())
