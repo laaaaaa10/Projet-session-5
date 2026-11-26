@@ -187,10 +187,10 @@ class _AffichageMuet:
 
 
 class BancRetrait:
-    def __init__(self, racine):
+    def __init__(self, racine, *, fabrique_can=BusRetraitSimule):
         self.racine = Path(racine)
         self.horloge = HorlogeSimulee()
-        self.can = BusRetraitSimule(self.horloge)
+        self.can = fabrique_can(self.horloge)
         self.securite = SecuriteSimulee(self.horloge)
         self.modele = ModeleStationnement()
         self.modele.changer_etat(10, EtatPlace.OCCUPEE)

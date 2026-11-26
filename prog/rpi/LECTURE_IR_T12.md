@@ -3,6 +3,10 @@
 Base : `df1e1376281bd3d3f0440f6b6b614aae0b336399`, PR #5 fusionnée.
 Branche : `t12-synchronisation-ir`. Vérifications du 26 novembre 2026.
 
+Mise à jour après fusion de la PR #6 : T06 Bas est maintenant livré. Voir
+[les essais T12 avec son code C](ESSAIS_T12_T06.md) et les limites du Haut.
+Les résultats chiffrés ci-dessous décrivent le jalon initial de lecture IR.
+
 ## Problème traité
 
 T12 exige des observations IR dont la réception date d'au plus 1,5 seconde
@@ -75,9 +79,11 @@ observation de rampe selon le raccordement envisagé : sa capacité à constater
 le véhicule sur la rampe de sortie doit toujours être vérifiée physiquement.
 La correspondance des 14 indices avec les places n'est pas inventée ici.
 
-Dans le code Bas examiné, `Core/Src/noeud.c` indique encore que le traitement
-T06 de 0x302 doit être ajouté. Ces essais ne constituent donc pas une validation
-des firmwares ni un feu vert pour des mouvements réels.
+Au commit de base `df1e137`, le traitement Bas de 0x302 restait à ajouter.
+La livraison `5f03434`, incluse dans `main` à `62f0414`, ajoute maintenant
+`T06_TraiterTrame` dans `Core/Src/noeud.c` pour le Bas. Le détecteur Haut
+reste à livrer. Les [essais avec le C livré](ESSAIS_T12_T06.md) complètent
+ce jalon ; la liaison avec le vrai Pi et les mouvements réels restent à tester.
 
 ## Essais reproductibles — PC
 
