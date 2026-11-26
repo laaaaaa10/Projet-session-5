@@ -82,6 +82,7 @@ class _Travailleur(_Signaux):
         self.options = options
         self.fabrique_lecteur = fabrique_lecteur
         self.lecteur = self.timer = self.journal = None
+        self.t13 = None
         self.termine = False
 
     @pyqtSlot()
@@ -168,6 +169,12 @@ class _Travailleur(_Signaux):
         except Exception as erreur:
             self._signaler("", "fermeture", erreur, fatal=True)
         finally:
+            fermer_t13 = getattr(self.t13, "fermer", None)
+            if callable(fermer_t13):
+                try:
+                    fermer_t13()
+                except Exception as erreur:
+                    self._signaler("", "fermeture_t13", erreur, fatal=True)
             if self.journal is not None:
                 JOURNAL_TECHNIQUE.removeHandler(self.journal)
                 self.journal.close()

@@ -20,6 +20,7 @@ from stockage.comptes_csv import DepotComptesCSV, DOSSIER_ACTIF
 
 def main(argv=None, *, dossier_donnees=DOSSIER_ACTIF):
     args = lecteur_nfc_rfid.lire_arguments(argv, description=__doc__)
+    t13 = None
     try:
         comptes = ServiceComptes(DepotComptesCSV(dossier_donnees))
         console = ConsoleBorne()
@@ -41,6 +42,10 @@ def main(argv=None, *, dossier_donnees=DOSSIER_ACTIF):
     except Exception as erreur:
         print(f"ERREUR {type(erreur).__name__} : {erreur}", file=sys.stderr)
         return 1
+    finally:
+        fermer = getattr(t13, "fermer", None)
+        if callable(fermer):
+            fermer()
     return 0
 
 

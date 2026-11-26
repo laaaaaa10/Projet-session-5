@@ -1,0 +1,3 @@
+-r requirements-t13.txt
+-r rpi/requirements-qt.txt
+# Les essais reseau exigent aussi l'executable Mosquitto 2.x (voir prog/pc/README.md).
