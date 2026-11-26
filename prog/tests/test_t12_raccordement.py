@@ -38,11 +38,14 @@ class TestsGardeRetrait(unittest.TestCase):
 
     def confirmer(self):
         self.assertEqual(self.app.demander(123456, 'r').phase, 'DEMANDE')
-        self.assertEqual(self.app.confirmer('r').phase, 'ATTENTE_PAIEMENT')
+        self.assertEqual(self.app.confirmer('r').phase, 'VERIFICATION_IR')
+        self.app.actualiser()  # réponses complètes du banc, puis ouverture T04
+        self.assertEqual(self.app.vue().phase, 'ATTENTE_PAIEMENT')
 
     def presenter(self, lecteur):
         self.b.borne.actualiser(LecteurGardeRetrait(lecteur, self.app), t04=self.b.t04)
         self.app.actualiser()
+        self.app.actualiser()  # lecture IR après paiement, avant commande d’actionneur
 
     def test_controle_chaque_badge_du_meme_lot_et_expire_exactement_a_60_s(self):
         self.confirmer()
@@ -55,7 +58,7 @@ class TestsGardeRetrait(unittest.TestCase):
         self.presenter(Lot())
         self.assertEqual(self.app.vue().phase, 'EXPIRE')
         self.assertEqual(b.comptes.consulter_compte(CARTE).solde_centimes, 1000)
-        self.assertEqual(b.can.envoyees, [])
+        self.assertEqual(b.can.envoyees, [(0x302, bytes([0xFF]))])
         self.assertEqual(b.borne.lire_resultats_paiement(), [])  # T04 les a consommés
 
     def test_garde_false_ne_debite_pas_meme_si_t04_oublie_annulation(self):
@@ -64,7 +67,7 @@ class TestsGardeRetrait(unittest.TestCase):
         with patch.object(self.b.t04, 'avant_presentation', return_value=False):
             self.presenter(lecteur)
         self.assertEqual(self.b.comptes.consulter_compte(CARTE).solde_centimes, 1000)
-        self.assertEqual(self.b.can.envoyees, [])
+        self.assertEqual(self.b.can.envoyees, [(0x302, bytes([0xFF]))])
 
     def test_debit_termine_apres_echeance_interrompt_sans_reprise(self):
         self.confirmer()
@@ -112,6 +115,8 @@ class TestsGardeRetrait(unittest.TestCase):
         lecteur = SimpleNamespace(lire=lambda: [EvenementRFID('ACCEPTE', '', CARTE)])
         self.b.borne.actualiser(LecteurGardeRetrait(lecteur, self.app), t04=self.b.t04)
         self.assertEqual(self.app.annuler('r').phase, 'PAYE_ATTENTE_MECANIQUE')
+        self.app.actualiser()
+        self.assertEqual(self.app.vue().phase, 'VERIFICATION_IR_APRES_PAIEMENT')
         self.app.actualiser()
         self.assertEqual(self.app.vue().phase, 'PREPARATION')
         self.assertEqual(self.b.comptes.consulter_compte(CARTE).solde_centimes, 800)
@@ -309,7 +314,7 @@ class TestsParcoursQtRetrait(unittest.TestCase):
         self.f.controleur.etat_operation('termine', 'ancienne réponse sans ID')
         self.assertFalse(s.en_cours)
         self.assertEqual(self.f.ecran_courant(), 'recuperation')
-        self.assertEqual(self.can.envoyees, [])
+        self.assertEqual(self.can.envoyees, [(0x302, bytes([0xFF]))])
 
     def test_refus_carte_reste_sur_paiement_puis_autre_carte_paie_tout(self):
         self.ouvrir(); self.confirmer()
@@ -329,7 +334,7 @@ class TestsParcoursQtRetrait(unittest.TestCase):
             self.f.ecran_recuperation.bouton_confirmer.click()
             self.attendre(lambda: not self.pont.en_cours)
         self.assertTrue(self.erreurs[0].fatal)
-        self.assertEqual(self.erreurs[0].action, 'confirmer_retrait')
+        self.assertEqual(self.erreurs[0].type_erreur, 'OSError')
         self.assertIn('Contactez le personnel', self.f.ecran_recuperation.texte.text())
         self.assertFalse(any(i in (0x100, 0x110, 0x120) for i, _ in self.can.envoyees))
 
@@ -339,6 +344,21 @@ class TestsParcoursQtRetrait(unittest.TestCase):
         self.f.controleur.annuler()
         self.assertIn('Service indisponible', self.f.ecran_recuperation.texte.text())
         self.attendre(lambda: not self.pont.en_cours)
+
+    def test_verification_ir_affichee_et_annulable_avant_paiement(self):
+        self.ouvrir(); self.saisir()
+        self.can.repondre_lecture_ir = False
+        self.f.ecran_recuperation.bouton_confirmer.click()
+        self.attendre(lambda: self.vues[-1].phase == 'VERIFICATION_IR')
+        self.assertIn('capteurs avant le paiement', self.f.ecran_recuperation.texte.text())
+        self.assertTrue(self.f.ecran_recuperation.bouton_annuler.isEnabled())
+        self.assertEqual(self.t04.gels, 0)
+        self.f.ecran_recuperation.bouton_annuler.click()
+        self.attendre(lambda: self.vues[-1].phase == 'ANNULE')
+        self.can.synchroniser_ir()
+        QTest.qWait(20)
+        self.assertEqual(self.t04.gels, 0)
+        self.assertFalse(any(i in (0x100, 0x110, 0x120) for i, _ in self.can.envoyees))
 
     def test_mise_hors_service_differee_attend_depart_manuel(self):
         self.ouvrir()
@@ -371,14 +391,14 @@ class TestsParcoursQtRetrait(unittest.TestCase):
         self.f.controleur.commencer_retrait()
         self.f.controleur.retrait_modifie(VueRetrait(identifiant, 123456, 'TERMINE'))
         self.assertEqual(self.f.ecran_courant(), 'saisie_billet')
-        self.assertEqual(self.can.envoyees, [])
+        self.assertEqual(self.can.envoyees, [(0x302, bytes([0xFF]))])
 
     def test_expiration_du_paiement_non_prolongee_par_interface(self):
         self.ouvrir(); self.confirmer()
         self.assertFalse(self.f.controleur.minuterie_inactivite.isActive())
         self.horloge.temps += 60
         self.attendre(lambda: self.vues[-1].phase == 'EXPIRE')
-        self.assertEqual(self.can.envoyees, [])
+        self.assertEqual(self.can.envoyees, [(0x302, bytes([0xFF]))])
 
     def test_hors_service_refuse_nouvelle_demande(self):
         self.ouvrir(activer=False); self.saisir()

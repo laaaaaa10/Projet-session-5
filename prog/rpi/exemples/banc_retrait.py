@@ -57,6 +57,7 @@ class BusRetraitSimule:
         self.places = {p: p == 10 for p in range(1, 15)}
         self.compteur_bas = self.compteur_sortie = self.compteur_hb = 0
         self.ir_place_actif = self.ir_sortie_actif = True
+        self.repondre_lecture_ir = True
         self.arrete = False
 
     def abonner(self, identifiants, rappel):
@@ -73,7 +74,11 @@ class BusRetraitSimule:
     def envoyer(self, ident, donnees):
         d = bytes(donnees)
         self.envoyees.append((ident, d))
-        if ident == 0x004:
+        if ident == 0x302 and self.repondre_lecture_ir:
+            if d != bytes([0xFF]):
+                raise ValueError('Le banc T12 attend une lecture des deux contrôleurs')
+            self.synchroniser_ir()
+        elif ident == 0x004:
             self.arrete = True
             self.attentes.clear()
             self.courante = None

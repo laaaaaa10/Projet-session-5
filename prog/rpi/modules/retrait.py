@@ -12,9 +12,11 @@ from pathlib import Path
 from queue import Queue, Empty, Full
 import sqlite3
 import time
+from threading import RLock
 
 from api.mecanique_retrait import ConditionsRetrait, SortieCloturee
 from modules.arbitrage_mecanique import arbitre_du_can
+from modules.lecture_ir import LectureIR
 from modules.depot import (
     ID_ARRETS, ID_ELEVATION_CMD, ID_ROTATION_CMD, ID_BRAS_CMD,
     ID_ELEVATION_ETAT, ID_ROTATION_ETAT, ID_BRAS_ETAT, REPONSE_DE,
@@ -63,7 +65,7 @@ class _Commande:
 class GestionRetrait:
     def __init__(self, can, stationnement, facturation, *, demande, securite,
                  journal, table_ir, ordre_sortie, horloge=time.monotonic,
-                 delai_mouvement=30., delai_ir=5., delai_surveillance=1.5):
+                 delai_mouvement=30., delai_ir=5., delai_surveillance=1.5, delai_lecture_ir=1.):
         # Pas de table physique ni de trajet par défaut : le banc les déclare.
         if (set(table_ir) != set(range(1, 15)) or set(table_ir.values()) != set(range(14))
                 or any(type(x) is not int for x in (*table_ir, *table_ir.values()))):
@@ -81,6 +83,9 @@ class GestionRetrait:
         self._place_par_ir = {i: p for p, i in table_ir.items()}
         self.delai_mouvement, self.delai_ir = delai_mouvement, delai_ir
         self.delai_surveillance = delai_surveillance
+        self.lecture_ir = LectureIR(can, horloge, delai=delai_lecture_ir)
+        self._verrou_reception = RLock()
+        self._ordre_reception = 0
         self._reception = Queue(maxsize=256)
         self._debordement = False
         self._hb, self._compteurs, self._places = {}, {}, {}
@@ -168,15 +173,29 @@ class GestionRetrait:
         self._progresser()
         return self.etape not in (EtapeRetrait.DEFAUT, EtapeRetrait.INTERROMPU)
 
-    def verifier_disponibilite(self, place):
-        """Lecture seule avant paiement ; toutes les conditions sont revérifiées au départ."""
+    def verifier_disponibilite(self, place, *, avec_ir=True):
+        """Précontrôle ; avec_ir=False sert seulement à préparer la lecture T06.
+
+        Le contrôle complet reste obligatoire avant gel et départ mécanique.
+        """
         if not self.demande.nouvelles_autorisees:
             return "Nouvelles demandes interdites"
         if self.occupe or self.arbitre.bloque or self.arbitre.proprietaire is not None:
             return "Mécanique occupée ou arrêt verrouillé"
-        return self._conditions_initiales(place)
+        return self._conditions_initiales(place, avec_ir=avec_ir)
 
-    def _conditions_initiales(self, place):
+    def demander_lecture_ir(self, id_demande, phase):
+        """Lecture seule, corrélée localement à la préparation du paiement ou du départ."""
+        if (id_demande != self.demande.id_demande or phase not in ('paiement', 'depart')
+                or self.occupe or self.arbitre.bloque):
+            return False
+        # La frontière exclut même les vieilles trames en file ayant le même
+        # horodatage. Le callback CAN ne traite ni SQLite ni cette machine.
+        with self._verrou_reception:
+            self.lecture_ir.commencer((id_demande, phase), self._ordre_reception)
+        return self.lecture_ir.etat in ('ATTENTE', 'TERMINEE')
+
+    def _conditions_initiales(self, place, *, avec_ir=True):
         probleme = self._controle_securite()
         if probleme:
             return probleme
@@ -188,6 +207,10 @@ class GestionRetrait:
             return "Références ou rétraction non confirmées"
         if self._hb[0x041][1] != 1:
             return "STM32 Haut non disponible"
+        if self.modele.etat(place) != EtatPlace.OCCUPEE:
+            return "Place logiquement occupée requise"
+        if not avec_ir:
+            return ""
         p = self._places.get(place)
         if (p is None or p[0] is not True or self.horloge() - p[1] > self.delai_surveillance
                 or self.modele.etat(place) != EtatPlace.OCCUPEE):
@@ -240,10 +263,14 @@ class GestionRetrait:
 
     def traiter_trame(self, identifiant, donnees):
         if identifiant in IDS_ECOUTES:
-            try:
-                self._reception.put_nowait((identifiant, bytes(donnees), self.horloge()))
-            except Full:
-                self._debordement = True
+            recu_a = self.horloge()  # avant toute attente sur le verrou du callback
+            with self._verrou_reception:
+                self._ordre_reception += 1
+                try:
+                    self._reception.put_nowait((identifiant, bytes(donnees), recu_a,
+                                               self._ordre_reception))
+                except Full:
+                    self._debordement = True
 
     def traiter_reponse_can(self, message):
         if not any(getattr(message, n, False) for n in ('is_extended_id', 'is_remote_frame', 'is_error_frame')):
@@ -273,10 +300,20 @@ class GestionRetrait:
         # Aucun nouvel ordre n'est envoyé pendant le traitement du lot reçu.
         for _ in range(256):
             try:
-                ident, donnees, recu_a = self._reception.get_nowait()
+                ident, donnees, recu_a, ordre = self._reception.get_nowait()
             except Empty:
                 break
-            self._traiter(ident, donnees, recu_a)
+            self._traiter(ident, donnees, recu_a, ordre)
+        self.lecture_ir.actualiser()
+        if self.lecture_ir.en_attente:
+            probleme = self._controle_securite()
+            if probleme or self.arbitre.bloque:
+                self.lecture_ir.echouer(probleme or self.arbitre.raison)
+        if self.lecture_ir.etat == 'ERREUR' and not self.lecture_ir.defaut_signale:
+            self.lecture_ir.defaut_signale = True
+            if self.etape not in (EtapeRetrait.DEFAUT, EtapeRetrait.INTERROMPU):
+                self._defaut(self.lecture_ir.erreur)
+            self.demande.arreter()
         if self._en_progression:
             probleme = self._controle_securite()
             if probleme or self.arbitre.bloque:
@@ -302,7 +339,7 @@ class GestionRetrait:
     def _en_progression(self):
         return self.occupe and self.etape not in (EtapeRetrait.DEFAUT, EtapeRetrait.INTERROMPU, EtapeRetrait.CLOTURE_INCERTAINE)
 
-    def _traiter(self, ident, d, recu_a):
+    def _traiter(self, ident, d, recu_a, ordre):
         if ident in ID_ARRETS:
             self._defaut(f"Arrêt CAN 0x{ident:03X}", interruption=True)
         elif ident in (0x010, 0x011, 0x012, 0x013):
@@ -310,7 +347,7 @@ class GestionRetrait:
                 self._defaut(f"Défaut critique CAN 0x{ident:03X}")
         elif ident in (0x041, 0x042):
             ancien = self._hb.get(ident)
-            if self._en_progression and ancien is not None and recu_a - ancien[0] >= self.delai_surveillance:
+            if (self._en_progression or self.lecture_ir.en_attente) and ancien is not None and recu_a - ancien[0] >= self.delai_surveillance:
                 self._defaut("Heartbeat revenu après une coupure : intervention requise")
             if len(d) != 2 or d[1] not in (1, 2):
                 self._hb.pop(ident, None)
@@ -321,7 +358,7 @@ class GestionRetrait:
         elif ident in REPONSE_DE.values():
             self._etat_moteur(ident, d, recu_a)
         else:
-            self._etat_ir(ident, d, recu_a)
+            self._etat_ir(ident, d, recu_a, ordre)
 
     def _etat_moteur(self, ident, d, recu_a):
         if not self._en_progression:
@@ -374,12 +411,12 @@ class GestionRetrait:
         else:
             self._defaut("Résultat moteur invalide")
 
-    def _etat_ir(self, ident, d, recu_a):
+    def _etat_ir(self, ident, d, recu_a, ordre):
         try:
             if ident == 0x300 and len(d) == 3 and d[0] < 14 and d[1] in (0, 1):
                 groupe, compteur, synchro = 'bas', d[2], False
                 observations = [(self._place_par_ir[d[0]], bool(d[1]))]
-            elif ident == 0x301 and len(d) == 4 and d[3] == 1:
+            elif ident == 0x301 and len(d) == 4 and d[3] == 1 and not d[1] & 0xC0:
                 groupe, compteur, synchro = 'bas', d[2], True
                 masque = d[0] | (d[1] & 63) << 8
                 observations = [(p, bool(masque >> i & 1)) for p, i in self.table_ir.items()]
@@ -429,9 +466,12 @@ class GestionRetrait:
                         elif self.arrivee_sortie:
                             self.depart_confirme = True
             self._compteurs[groupe] = compteur
+            self.lecture_ir.accepter(ident, ordre, recu_a)
             if self._en_progression:
                 self._enregistrer()
         except ValueError as erreur:
+            if self.lecture_ir.concerne(ordre):
+                self.lecture_ir.echouer(str(erreur))
             if ident in (0x310, 0x311):
                 self.sortie = None
             else:
@@ -525,6 +565,7 @@ class GestionRetrait:
             return False
 
     def _defaut(self, raison, *, interruption=False, enregistrer=True):
+        self.lecture_ir.echouer(raison)
         if self.etape == EtapeRetrait.TERMINE:
             # Un arrêt ultérieur ne transforme jamais une ancienne sortie en échec.
             self.id_demande = self.transaction_id = self.place = None
@@ -574,6 +615,7 @@ class GestionRetrait:
         return self.etape.value
 
     def fermer(self):
+        self.lecture_ir.annuler()
         try:
             if self._en_progression:
                 self.arreter()
