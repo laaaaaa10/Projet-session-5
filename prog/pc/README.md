@@ -1,4 +1,18 @@
-# T13 — Premier jalon MQTT / T02 / PC
+# T13 — Supervision PC
+
+**Interface opérateur, 25 novembre :** la [console PC](INTERFACE_PC.md) remplace
+la fenêtre unique de diagnostic. Elle propose cinq pages et démarre en plein
+écran sans barre de titre ; F11 et Quitter restent accessibles dans l'application.
+Le client, le journal durable et le contrat MQTT sont conservés.
+
+**Lancement simplifié :** sur le PC déjà préparé, exécuter `./esa` depuis
+la racine du dépôt. L'application reprend les paramètres MQTT et le journal
+des essais, en plein écran. `./esa --fenetre` permet le mode fenêtre.
+Les autres réglages et la préparation d'un nouveau PC sont décrits dans
+[INTERFACE_PC.md](INTERFACE_PC.md#lancement).
+
+Les sections ci-dessous documentent les jalons précédents ; les limites et
+essais actuels de l'interface sont regroupés dans [INTERFACE_PC.md](INTERFACE_PC.md).
 
 **Ajout du 25 novembre :** le [banc de service simulé](ESSAIS_SERVICE_T13.md)
 permet maintenant de tester les quatre commandes de service avec T11/T12
@@ -62,7 +76,8 @@ le raccordement au thread T02.
 | `prog/rpi/application/integration_t13.py` | Fabrique sans QWidget, activation explicite |
 | `prog/pc/demandes.py` | Journal SQLite des demandes PC immuables |
 | `prog/pc/client.py` | Corrélation, retransmission, resynchronisation et péremption |
-| `prog/pc/interface.py` | Fenêtre PC et travailleur Qt séparé |
+| `prog/pc/interface.py` | Pont et travailleur Qt ; réexport de la fenêtre |
+| `prog/pc/fenetre.py`, `prog/pc/visuels.py` | Pages opérateur et présentation |
 | `prog/pc/main.py` | Assemblage et lancement du PC |
 | `prog/rpi/outils/serveur_t13.py` | Banc Pi sans matériel, avec vrai T02 et dossier explicite |
 
