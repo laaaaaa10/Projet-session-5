@@ -55,6 +55,7 @@ class TestsSelectionPC(unittest.TestCase):
         self.vue = {"statut": "A_JOUR", "etat": {"disponibilite": {"T02": True}},
                     "demandes": [demande("a"), demande("b")]}
         self.fenetre.actualiser(self.vue)
+        self.fenetre.afficher_page(2)  # Journal des demandes.
         self.fenetre.show()
         self.app.processEvents()
 
