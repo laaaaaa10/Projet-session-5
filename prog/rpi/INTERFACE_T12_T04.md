@@ -1,5 +1,8 @@
 # T12 — Préparation du retrait et contrat proposé avec T04
 
+Portée de ce document : premier incrément financier. La machine mécanique et
+son état actuel sont décrits dans [ESSAIS_T12.md](ESSAIS_T12.md).
+
 Base examinée : `ea44e864102d025fb74f18d0a5f13d0d8857482f` (26 novembre 2026).
 Ce premier incrément porte sur la demande et le paiement. Il ne réalise aucun
 mouvement, aucune clôture, aucune libération de place, et ne remplace pas T04.

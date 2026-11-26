@@ -23,6 +23,7 @@ class EtapeDemandeRetrait(str, Enum):
     ATTENTE = "ATTENTE_PAIEMENT"
     PAYE = "PAYE_ATTENTE_MECANIQUE"
     EXPIRE = "EXPIRE"
+    CLOTURE = "CLOTURE"
     ANNULE = "ANNULE"
     INCERTAIN = "INCERTAIN"
     INTERROMPU = "INTERROMPU"
@@ -50,10 +51,10 @@ class GestionDemandeRetrait:
                 etape TEXT NOT NULL, fenetre TEXT, paiement TEXT, message TEXT NOT NULL
             )""")
             self.db.execute("""UPDATE demandes SET etape=?, message=?
-                WHERE etape NOT IN (?, ?, ?)""", (
+                WHERE etape NOT IN (?, ?, ?, ?)""", (
                 EtapeDemandeRetrait.INTERROMPU.value, "Redémarrage : intervention requise",
                 EtapeDemandeRetrait.EXPIRE.value, EtapeDemandeRetrait.ANNULE.value,
-                EtapeDemandeRetrait.INTERROMPU.value,
+                EtapeDemandeRetrait.INTERROMPU.value, EtapeDemandeRetrait.CLOTURE.value,
             ))
         ligne = self.db.execute("SELECT id FROM demandes ORDER BY rowid DESC LIMIT 1").fetchone()
         self.id_demande = None if ligne is None else ligne["id"]
@@ -95,7 +96,7 @@ class GestionDemandeRetrait:
         if not self.nouvelles_autorisees:
             self.derniere_erreur = "Nouvelles demandes interdites"
             return False
-        if self.etape not in (None, EtapeDemandeRetrait.EXPIRE, EtapeDemandeRetrait.ANNULE):
+        if self.etape not in (None, EtapeDemandeRetrait.EXPIRE, EtapeDemandeRetrait.ANNULE, EtapeDemandeRetrait.CLOTURE):
             self.derniere_erreur = "Demande en cours ou intervention requise"
             return False
         transaction = self.facturation.identifier_transaction(transaction_id)
@@ -210,7 +211,7 @@ class GestionDemandeRetrait:
 
     def arreter(self):
         self.nouvelles_autorisees = False
-        if self.etape in (None, EtapeDemandeRetrait.ANNULE, EtapeDemandeRetrait.EXPIRE):
+        if self.etape in (None, EtapeDemandeRetrait.ANNULE, EtapeDemandeRetrait.EXPIRE, EtapeDemandeRetrait.CLOTURE):
             return
         precedente = self.etape
         self._enregistrer(EtapeDemandeRetrait.INTERROMPU, "Intervention requise")
@@ -221,6 +222,12 @@ class GestionDemandeRetrait:
             except Exception as erreur:
                 self._enregistrer(EtapeDemandeRetrait.INTERROMPU,
                                   f"Intervention requise ; paiement incertain : {erreur}")
+
+    def enregistrer_sortie(self, id_demande):
+        """Appelé par T12 uniquement après reçu de clôture corrélé du propriétaire T04."""
+        if id_demande != self.id_demande or self.etape not in (EtapeDemandeRetrait.PAYE, EtapeDemandeRetrait.CLOTURE):
+            raise ValueError("Demande payée attendue pour constater la clôture T04")
+        self._enregistrer(EtapeDemandeRetrait.CLOTURE)
 
     def obtenir_etat(self):
         ligne = self.instantane()
