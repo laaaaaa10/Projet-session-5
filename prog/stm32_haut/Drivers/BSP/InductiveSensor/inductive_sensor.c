@@ -2,7 +2,7 @@
  * inductive_sensor.c
  *
  *  Created on: 18 nov. 2026
- *      Author: Jonathan Marois
+ *      Author: Javier Bolduc
  */
 
 

@@ -1,0 +1,167 @@
+# Console PC ESA — T13
+
+La console remplace l'écran de diagnostic unique par cinq pages opérateur.
+Elle démarre **en plein écran, sans barre de titre native**. Les commandes
+passent toujours par **PC ↔ broker MQTT ↔ Raspberry Pi**.
+
+## Lancement
+
+Sur le **PC**, depuis le dossier du projet :
+
+```bash
+./esa
+```
+
+Depuis un autre dossier, utiliser `~/Projects/Projet-session-5/esa`.
+Le lanceur utilise l'environnement Python déjà préparé dans
+`~/.venvs/esa-t13`. Il reprend le broker `10.50.86.13:1883`, le préfixe
+`esa/Equipe_1`, TLS désactivé et le journal existant
+`~/.local/share/esa/t13-service-sim-pc.sqlite3` pour conserver les demandes
+et leurs identifiants. Aucun changement du serveur Pi n'est nécessaire.
+
+`./esa --fenetre` démarre en fenêtre et `./esa --help` affiche les options.
+Les variables `ESA_MQTT_*` déjà définies restent prioritaires. Un autre journal
+se choisit avec `./esa --journal /chemin/journal.sqlite3` ou `ESA_JOURNAL_PC` ;
+`ESA_PYTHON` permet d'indiquer le chemin d'un autre interpréteur préparé.
+Le lancement avancé par `prog/pc/main.py` reste disponible et exige toujours
+une configuration MQTT explicite.
+
+Pour un **nouveau PC seulement**, préparer l'environnement une fois depuis
+le dossier du projet (Python et son module `venv` doivent être installés) :
+
+```bash
+python3 -m venv "$HOME/.venvs/esa-t13" &&
+"$HOME/.venvs/esa-t13/bin/python" -m pip install -r prog/pc/requirements.txt
+```
+
+Le lanceur n'installe rien au démarrage.
+
+| Commande locale | Effet |
+| --- | --- |
+| F11 ou bouton « F11 · Écran » | Alterner plein écran / fenêtre avec barre de titre |
+| « Quitter » ou Ctrl+Q | Fermer proprement le client MQTT et son travailleur Qt |
+| Option `--fenetre` au lancement | Démarrer directement en fenêtre |
+
+## Pages
+
+| Page | Informations et actions |
+| --- | --- |
+| Vue d'ensemble | État de service, 14 places réparties en deux niveaux, présence IR distincte de l'état logique, anomalies et dernière demande |
+| Comptes RFID | Numéro imprimé sur le badge, recherche et sélection d’un compte, solde reçu, consultation et crédit en centimes entiers |
+| Activité | Demandes PC, résultat en cours ou final, détail de la référence, renvoi avec le même ID ; onglet transactions de la borne |
+| Statistiques | État d'attente explicite, puis informations réellement transmises par la borne |
+| Diagnostic | Configuration du broker, disponibilités et instantané technique reçu en lecture seule |
+
+Les quatre commandes de service restent accessibles dans la colonne gauche.
+Le Pi vérifie leurs conditions, y compris les refus de réarmement et de remise
+en service. L'arrêt logiciel conserve son bouton rouge sur toutes les pages.
+
+Une place sans information reste **Inconnu** ; elle n'est jamais comptée libre.
+Le libellé opérateur « Entretien » correspond à l'état logique `maintenance`.
+La présence physique IR ne modifie pas l'état logique affiché.
+
+Un instantané périmé est identifié comme dernier état connu ; les couleurs des
+places deviennent neutres. Les données et le journal restent consultables,
+mais les envois sont désactivés jusqu'à la resynchronisation. Le bandeau
+distingue la perte du broker et l'attente du Pi avec broker encore connecté.
+
+La liste, la recherche, la saisie et les détails des demandes affichent le
+**numéro décimal imprimé sur le badge**, sur dix chiffres avec ses zéros initiaux.
+Les correspondances déjà validées dans [T02](../rpi/README_COMPTES.md) sont :
+
+| Compte | Numéro affiché et saisi | ID complet conservé dans les échanges |
+| --- | --- | --- |
+| Jason Duval | `0008923129` | `11008827F9` |
+| Lucia Caminos | `0008533812` | `1100823734` |
+
+La console réutilise la fonction pure `numero_badge()` du lecteur RFID ; elle
+n'ouvre ni UART ni GPIO. Elle retrouve l'ID complet parmi les comptes reçus du
+Pi, sans deviner de préfixe. Un numéro inconnu ou correspondant à plusieurs
+comptes ne peut pas être crédité. L'ID complet reste la clé du compte côté Pi
+et du journal ; aucun compte ni solde n'est migré. Le checksum de la trame
+RFID est déjà retiré avant la transmission de cet ID.
+
+Un numéro trop long n'est pas tronqué en numéro valide. Dès le clic, une protection
+locale bloque un second crédit pendant le passage vers le journal du
+travailleur. Les protections durables et l'idempotence restent dans le client
+et le Pi. Une acceptation s'affiche « En cours », jamais « Terminée ».
+
+## Rendu
+
+La deuxième version s'appuie sur les planches originales du directeur graphique
+Mark Cordell Holmes : les espaces passagers apportent les formes bombées, les
+lettres épaisses et les couleurs vives ; les consoles de la passerelle apportent
+les cercles et les surfaces lumineuses.
+
+Le rendu combine des capsules de verre bleu, des reflets cyan, des bordures
+lumineuses, des boutons en volume, une navigation à pictogrammes ronds et un
+emblème ESA orbital. La typographie utilise Fredoka et Nunito, embarquées sous
+licence OFL. Ce sont des choix pour cette adaptation, pas les polices originales
+du film. Les couleurs des témoins restent liées aux données reçues ; les
+compteurs et les places deviennent neutres lorsque les données sont périmées.
+
+Les formes, pictogrammes et reflets sont dessinés par Qt. Aucun extrait du film,
+image téléchargée ou accès réseau supplémentaire n'est nécessaire au lancement.
+Le décor est statique ; il n'ajoute pas de boucle d'animation au traitement MQTT.
+Le rappel « PC ↔ broker MQTT ↔ Pi » a été retiré du pied de page. Le bandeau
+de connexion reste présent en haut. L'étiquette d'équipe a également été
+retirée de l'en-tête ; le préfixe MQTT reste consultable dans Diagnostic.
+
+Captures du vrai code Qt avec des **états de test hors réseau**. Ces états ne
+sont pas injectés dans l'application normale.
+
+![Vue d'ensemble](captures/supervision.png)
+
+![Comptes RFID](captures/comptes.png)
+
+Le rendu a été inspecté à 1440×900, 1280×720 et 1024×768. Sur les petits écrans,
+le contenu des pages défile ; les commandes de service et de fermeture restent
+fixes. Les deux rangées de places sont visibles à 1280×720 avec le bandeau de
+simulation dans l'état hors service.
+
+## Validation et limites
+
+Au 26 novembre 2026 : **215 tests réussis, aucun ignoré**, avec Qt hors écran et
+Mosquitto local. La suite couvre notamment le vrai parcours de crédit MQTT,
+la saisie du numéro imprimé avec crédit du compte UART correspondant,
+le renvoi sans double crédit, les coupures/reconnexions et les commandes de
+service simulées. Les nouveaux essais de console vérifient aussi le plein
+écran au lancement, F11, Quitter, la saisie RFID, le double clic, la sélection
+conservée, les numéros de badges inconnus ou ambigus, les états inconnus et les pages sans données.
+
+Le lanceur a aussi été vérifié depuis un autre dossier, avec des chemins
+contenant des espaces, une configuration personnalisée, les options de
+l'application et un interpréteur absent. Il conserve le journal par défaut
+et transmet le code de sortie de l'application.
+
+```bash
+ESA_TEST_BROKER=1 QT_QPA_PLATFORM=offscreen \
+"$HOME/.venvs/esa-t13/bin/python" -B -m unittest discover \
+  -s prog/tests -p 'test_*.py' -v
+```
+
+Mosquitto doit être installé pour cette suite ; `ESA_TEST_MOSQUITTO` peut
+indiquer son chemin. Les tests utilisent un broker et des journaux temporaires.
+Le mode Qt hors écran vérifie le lancement plein écran et les interactions,
+mais le rendu du gestionnaire de fenêtres du PC reste à constater au lancement.
+
+La campagne manuelle précédente a déjà validé les échanges PC/broker/Pi sur
+`797fda3`, dont la fin locale d'une transaction pendant une coupure MQTT et la
+réception du résultat après reconnexion. Les nouveaux visuels n'ont pas encore
+été essayés sur le PC physique.
+
+Les modules réels fournissant les places, transactions et statistiques ne sont
+pas raccordés par cette modification. Leurs données absentes restent indiquées
+comme indisponibles. Les futurs champs de transactions et statistiques sont
+présentés en lecture seule sans inventer leur schéma ni des indicateurs.
+Le mode simulation de service reste explicitement signalé. T13 complet reste
+à intégrer et valider avec ces modules.
+
+## Sources et code
+
+- [Interface individuelle T13 fournie, section 12](https://chatgpt.com/library?file_id=libfile_fde3_f-09ca40cfe678819181e979db60e74858_cbe6ad3528f08191af91018d1e714e05&account_id=personal).
+- [Contrat MQTT du dépôt](../commun/t13/CONTRAT_MQTT_PROPOSE.md).
+- [Campagne de service simulé](ESSAIS_SERVICE_T13.md).
+- [Direction graphique originale de WALL‑E, Mark Cordell Holmes](https://www.markcordellholmes.com/visual-storytelling).
+- [Lanceur `./esa`](../../esa), [fenêtre](fenetre.py), [thème et présentation](visuels.py), [surfaces et pictogrammes](holographie.py), [polices et licences](polices/README.md), [pont Qt](interface.py), [lancement Python](main.py).
+- [Essais de console](../tests/test_console_pc_t13.py), [sélection et reprise](../tests/test_interface_pc_t13.py), [broker réel](../tests/test_t13_broker.py).

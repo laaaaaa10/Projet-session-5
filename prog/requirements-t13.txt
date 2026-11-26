@@ -1,0 +1,2 @@
+# PC et Pi : transport optionnel. Aucune bibliotheque materielle requise.
+paho-mqtt>=2.1,<3

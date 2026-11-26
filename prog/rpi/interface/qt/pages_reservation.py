@@ -13,7 +13,7 @@ ne lisent que le modèle partagé (via GestionReservation) : l'état d'une place
 ne dépend jamais de l'état d'un bouton.
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T03)
+
 """
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QPushButton,
