@@ -5,6 +5,12 @@ la fenêtre unique de diagnostic. Elle propose cinq pages et démarre en plein
 écran sans barre de titre ; F11 et Quitter restent accessibles dans l'application.
 Le client, le journal durable et le contrat MQTT sont conservés.
 
+**Lancement simplifié :** sur le PC déjà préparé, exécuter `./esa` depuis
+la racine du dépôt. L'application reprend les paramètres MQTT et le journal
+des essais, en plein écran. `./esa --fenetre` permet le mode fenêtre.
+Les autres réglages et la préparation d'un nouveau PC sont décrits dans
+[INTERFACE_PC.md](INTERFACE_PC.md#lancement).
+
 Les sections ci-dessous documentent les jalons précédents ; les limites et
 essais actuels de l'interface sont regroupés dans [INTERFACE_PC.md](INTERFACE_PC.md).
 

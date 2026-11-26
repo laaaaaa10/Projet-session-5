@@ -1,0 +1,22 @@
+#!/bin/sh
+# Console PC : paramètres du poste utilisé pour les essais ESA.
+set -eu
+
+repertoire_esa=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+python_esa="${ESA_PYTHON:-$HOME/.venvs/esa-t13/bin/python}"
+
+if [ ! -x "$python_esa" ]; then
+    printf 'Python ESA introuvable : %s\n' "$python_esa" >&2
+    printf 'Préparez l’environnement indiqué dans prog/pc/INTERFACE_PC.md, puis relancez ./esa.\n' >&2
+    exit 1
+fi
+
+# Les variables définies par le poste restent prioritaires.
+export ESA_MQTT_HOTE="${ESA_MQTT_HOTE:-10.50.86.13}"
+export ESA_MQTT_PORT="${ESA_MQTT_PORT:-1883}"
+export ESA_MQTT_PREFIXE="${ESA_MQTT_PREFIXE:-esa/Equipe_1}"
+export ESA_MQTT_TLS="${ESA_MQTT_TLS:-0}"
+
+# Garder le journal existant et les identifiants des demandes précédentes.
+exec "$python_esa" -B "$repertoire_esa/prog/pc/main.py" \
+    --journal "${ESA_JOURNAL_PC:-$HOME/.local/share/esa/t13-service-sim-pc.sqlite3}" "$@"

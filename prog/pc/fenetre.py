@@ -98,12 +98,7 @@ class FenetreSupervision(QMainWindow):
         titres.addWidget(self.titre_page)
         titres.addWidget(self.sous_titre)
         entete.addLayout(titres, 1)
-        self.equipe = etiquette("BORNE\n—", "surTitre")
-        self.equipe.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         config = getattr(getattr(pont, "travailleur", None), "config", None)
-        if config is not None:
-            self.equipe.setText(config.prefixe.replace("esa/", "").replace("_", " ").upper())
-        entete.addWidget(self.equipe)
         principal.addLayout(entete)
         self.connexion = etiquette("Connexion en cours — données indisponibles", "bandeau", True)
         ton(self.connexion, "orange")

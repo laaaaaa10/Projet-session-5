@@ -6,21 +6,35 @@ passent toujours par **PC ↔ broker MQTT ↔ Raspberry Pi**.
 
 ## Lancement
 
-Sur le **PC**, avec l'environnement Python déjà utilisé pour les essais :
+Sur le **PC**, depuis le dossier du projet :
 
 ```bash
-cd ~/Projects/Projet-session-5 &&
-ESA_MQTT_HOTE=10.50.86.13 \
-ESA_MQTT_PORT=1883 \
-ESA_MQTT_PREFIXE=esa/Equipe_1 \
-ESA_MQTT_TLS=0 \
-"$HOME/.venvs/esa-t13/bin/python" -B prog/pc/main.py \
-  --journal "$HOME/.local/share/esa/t13-service-sim-pc.sqlite3"
+./esa
 ```
 
-Conserver le même journal PC pour retrouver les demandes et leurs identifiants.
-Cette évolution graphique ne nécessite aucun changement du serveur Pi testé
-au commit `797fda3`.
+Depuis un autre dossier, utiliser `~/Projects/Projet-session-5/esa`.
+Le lanceur utilise l'environnement Python déjà préparé dans
+`~/.venvs/esa-t13`. Il reprend le broker `10.50.86.13:1883`, le préfixe
+`esa/Equipe_1`, TLS désactivé et le journal existant
+`~/.local/share/esa/t13-service-sim-pc.sqlite3` pour conserver les demandes
+et leurs identifiants. Aucun changement du serveur Pi n'est nécessaire.
+
+`./esa --fenetre` démarre en fenêtre et `./esa --help` affiche les options.
+Les variables `ESA_MQTT_*` déjà définies restent prioritaires. Un autre journal
+se choisit avec `./esa --journal /chemin/journal.sqlite3` ou `ESA_JOURNAL_PC` ;
+`ESA_PYTHON` permet d'indiquer le chemin d'un autre interpréteur préparé.
+Le lancement avancé par `prog/pc/main.py` reste disponible et exige toujours
+une configuration MQTT explicite.
+
+Pour un **nouveau PC seulement**, préparer l'environnement une fois depuis
+le dossier du projet (Python et son module `venv` doivent être installés) :
+
+```bash
+python3 -m venv "$HOME/.venvs/esa-t13" &&
+"$HOME/.venvs/esa-t13/bin/python" -m pip install -r prog/pc/requirements.txt
+```
+
+Le lanceur n'installe rien au démarrage.
 
 | Commande locale | Effet |
 | --- | --- |
@@ -90,7 +104,8 @@ Les formes, pictogrammes et reflets sont dessinés par Qt. Aucun extrait du film
 image téléchargée ou accès réseau supplémentaire n'est nécessaire au lancement.
 Le décor est statique ; il n'ajoute pas de boucle d'animation au traitement MQTT.
 Le rappel « PC ↔ broker MQTT ↔ Pi » a été retiré du pied de page. Le bandeau
-de connexion reste présent en haut.
+de connexion reste présent en haut. L'étiquette d'équipe a également été
+retirée de l'en-tête ; le préfixe MQTT reste consultable dans Diagnostic.
 
 Captures du vrai code Qt avec des **états de test hors réseau**. Ces états ne
 sont pas injectés dans l'application normale.
@@ -113,6 +128,11 @@ le renvoi sans double crédit, les coupures/reconnexions et les commandes de
 service simulées. Les nouveaux essais de console vérifient aussi le plein
 écran au lancement, F11, Quitter, la saisie RFID, le double clic, la sélection
 conservée, les numéros de badges inconnus ou ambigus, les états inconnus et les pages sans données.
+
+Le lanceur a aussi été vérifié depuis un autre dossier, avec des chemins
+contenant des espaces, une configuration personnalisée, les options de
+l'application et un interpréteur absent. Il conserve le journal par défaut
+et transmet le code de sortie de l'application.
 
 ```bash
 ESA_TEST_BROKER=1 QT_QPA_PLATFORM=offscreen \
@@ -143,5 +163,5 @@ Le mode simulation de service reste explicitement signalé. T13 complet reste
 - [Contrat MQTT du dépôt](../commun/t13/CONTRAT_MQTT_PROPOSE.md).
 - [Campagne de service simulé](ESSAIS_SERVICE_T13.md).
 - [Direction graphique originale de WALL‑E, Mark Cordell Holmes](https://www.markcordellholmes.com/visual-storytelling).
-- [Fenêtre](fenetre.py), [thème et présentation](visuels.py), [surfaces et pictogrammes](holographie.py), [polices et licences](polices/README.md), [pont Qt](interface.py), [lancement](main.py).
+- [Lanceur `./esa`](../../esa), [fenêtre](fenetre.py), [thème et présentation](visuels.py), [surfaces et pictogrammes](holographie.py), [polices et licences](polices/README.md), [pont Qt](interface.py), [lancement Python](main.py).
 - [Essais de console](../tests/test_console_pc_t13.py), [sélection et reprise](../tests/test_interface_pc_t13.py), [broker réel](../tests/test_t13_broker.py).
