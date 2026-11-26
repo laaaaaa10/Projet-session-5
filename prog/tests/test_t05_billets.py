@@ -8,7 +8,6 @@ test_t05_billets.py - T05 : tests automatiques côté RPi (sans matériel).
 Usage : python3 -m unittest prog/tests/test_t05_billets.py -v
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T05)
 """
 from datetime import datetime
 from pathlib import Path
