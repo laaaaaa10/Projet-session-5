@@ -10,6 +10,7 @@
 #include "essai_t07.h"
 #include "console.h"
 #include "esa_can.h"
+#include "esa_noeud.h"
 #include "esa_can_ids.h"
 #include "noeud.h"
 #include "t07_del.h"
@@ -34,14 +35,16 @@ static const char *nom_trame(uint16_t id)
     switch (id)
     {
         case CAN_ID_HEARTBEAT_RPI:        return "HEARTBEAT_RPI";
+        case CAN_ID_HEARTBEAT_HAUT:       return "HEARTBEAT_HAUT";
         case CAN_ID_HEARTBEAT_BAS:        return "HEARTBEAT_BAS";
+        case CAN_ID_HEARTBEAT_BORNE:      return "HEARTBEAT_BORNE";
         case CAN_ID_ECLAIRAGE_CMD:        return "ECLAIRAGE_CMD";
         case CAN_ID_DEL_PLACE_CMD:        return "DEL_PLACE_CMD";
-        case CAN_ID_DEL_BAS_ETAT:         return "DEL_BAS_ETAT";
-        case CAN_ID_DEL_HAUT_ETAT:        return "DEL_HAUT_ETAT";
-        case CAN_ID_ECLAIRAGE_BAS_ETAT:   return "ECLAIRAGE_BAS_ETAT";
-        case CAN_ID_ECLAIRAGE_HAUT_ETAT:  return "ECLAIRAGE_HAUT_ETAT";
-        case CAN_ID_ECLAIRAGE_BORNE_ETAT: return "ECLAIRAGE_BORNE_ETAT";
+        case CAN_ID_DEL_PLACES_1_7_ETAT:  return "DEL_PLACES_1_7_ETAT";
+        case CAN_ID_DEL_PLACES_8_14_ETAT: return "DEL_PLACES_8_14_ETAT";
+        case CAN_ID_ECLAIRAGE_NIV0_ETAT:  return "ECLAIRAGE_NIV0_ETAT";
+        case CAN_ID_ECLAIRAGE_NIV1_ETAT:  return "ECLAIRAGE_NIV1_ETAT";
+        case CAN_ID_ECLAIRAGE_NIV2_ETAT:  return "ECLAIRAGE_NIV2_ETAT";
         default:                          return "";
     }
 }
@@ -61,13 +64,13 @@ static void afficher_brut(const char *sens, uint16_t id, uint8_t dlc, const uint
 /* Appelée par Noeud_Tache() pour chaque trame reçue */
 static void observer_trame(const TrameCan *t)
 {
-    bool reponse_t07 = (t->id == CAN_ID_DEL_BAS_ETAT) || (t->id == CAN_ID_DEL_HAUT_ETAT) ||
-                       (t->id == CAN_ID_ECLAIRAGE_BAS_ETAT) || (t->id == CAN_ID_ECLAIRAGE_HAUT_ETAT) ||
-                       (t->id == CAN_ID_ECLAIRAGE_BORNE_ETAT);
+    bool reponse_t07 = (t->id == CAN_ID_DEL_PLACES_1_7_ETAT) || (t->id == CAN_ID_DEL_PLACES_8_14_ETAT) ||
+                       (t->id == CAN_ID_ECLAIRAGE_NIV0_ETAT) || (t->id == CAN_ID_ECLAIRAGE_NIV1_ETAT) ||
+                       (t->id == CAN_ID_ECLAIRAGE_NIV2_ETAT);
 
     if (reponse_t07 && (t->dlc == 3u))
     {
-        bool del = (t->id == CAN_ID_DEL_BAS_ETAT) || (t->id == CAN_ID_DEL_HAUT_ETAT);
+        bool del = (t->id == CAN_ID_DEL_PLACES_1_7_ETAT) || (t->id == CAN_ID_DEL_PLACES_8_14_ETAT);
         Console_Printf("<- 0x%03X %s : seq=%u %s=%u -> %s\r\n", t->id, nom_trame(t->id),
                        t->data[0], del ? "place" : "niveau", t->data[1],
                        (t->data[2] == 1u) ? "APPLIQUE" : "REFUSE");
@@ -174,8 +177,15 @@ static void cmd_etat(void)
                            p.rouge, p.vert, p.bleu, (p.mode == 1u) ? "clignote" : "fixe");
         }
     }
-    T07_LireEclairage(&r, &v, &b);
-    Console_Printf("  eclairage niveau %u : R=%u V=%u B=%u\r\n", cfg->niveau_eclairage, r, v, b);
+    if (cfg->nb_eclairage > 0u)
+    {
+        T07_LireEclairage(&r, &v, &b);
+        Console_Printf("  eclairage niveau %u : R=%u V=%u B=%u\r\n", cfg->niveau_eclairage, r, v, b);
+    }
+    else
+    {
+        Console_Printf("  eclairage niveau %u : aucune DEL (commandes refusees)\r\n", cfg->niveau_eclairage);
+    }
     Console_Printf("T07 : %lu appliquees, %lu refusees, %lu ignorees, %lu reponses non envoyees\r\n",
                    (unsigned long)s.appliquees, (unsigned long)s.refusees,
                    (unsigned long)s.ignorees, (unsigned long)s.reponses_non_envoyees);
@@ -237,7 +247,13 @@ static void executer(char *ligne)
 void EssaiT07_Init(void)
 {
     Noeud_DefinirObservateur(observer_trame);
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
     Console_Ecrire("\r\n=== Essai T07 (STM32 BAS) ===\r\n");
+#elif (ESA_NOEUD == ESA_NOEUD_HAUT)
+    Console_Ecrire("\r\n=== Essai T07 (STM32 HAUT) ===\r\n");
+#else
+    Console_Ecrire("\r\n=== Essai T07 (STM32 BORNE) ===\r\n");
+#endif
     Console_Printf("CAN en %s. Taper aide.\r\n", CanEsa_EnLoopback() ? "loopback" : "mode normal");
 }
 

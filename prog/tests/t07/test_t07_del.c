@@ -77,8 +77,8 @@ int main(void)
     for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 0, 0, 0);
     VERIFIE(ok, "démarrage : 7 témoins éteints (indices impairs)");
     ok = 1;
-    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 64, 64, 64);
-    VERIFIE(ok, "démarrage : éclairage blanc modéré (indices pairs)");
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 0, 0, 0);
+    VERIFIE(ok, "BAS : DEL du dessous éteintes (pas d'éclairage du niveau 0)");
 
     T07_Tache(t + 10);
     VERIFIE(spi.dma_calls == 1, "aucun envoi si l'image ne change pas");
@@ -96,11 +96,11 @@ int main(void)
     T07_Tache(t + 30);
     VERIFIE(del_est(1, 0, 255, 0) && del_est(13, 0, 0, 255), "place 1 = indice 1 (vert), place 7 = indice 13 (bleu)");
 
-    /* Place du HAUT : ignorée, sans réponse */
+    /* Places 8 à 14 (BORNE) : ignorées, sans réponse */
     int avant = nb_envoyees;
     cmd(0x340, 6, 10, 8, 1, 2, 3, 0);
     cmd(0x340, 6, 11, 14, 1, 2, 3, 0);
-    VERIFIE(nb_envoyees == avant, "places 8 et 14 (HAUT) : aucune réponse du BAS");
+    VERIFIE(nb_envoyees == avant, "places 8 et 14 (BORNE) : aucune réponse du BAS");
 
     /* Refus */
     cmd(0x340, 6, 12, 0, 1, 2, 3, 0);
@@ -126,13 +126,13 @@ int main(void)
     T07_Tache(1999);  VERIFIE(del_est(3, 0, 0, 0),     "t = 1999 ms : éteinte");
     T07_Tache(2000);  VERIFIE(del_est(3, 255, 255, 0), "t = 2000 ms : rallumée (période 1 s)");
 
-    /* Éclairage */
+    /* Éclairage : le BAS n'a pas de DEL d'éclairage, il refuse le niveau 0 */
     cmd(0x130, 5, 20, 0, 10, 20, 30, 0);
-    VERIFIE(derniere_reponse(0x350, 20, 0, 1), "éclairage niveau 0 : réponse 0x350 [20, 0, 1]");
+    VERIFIE(derniere_reponse(0x350, 20, 0, 0), "BAS : éclairage niveau 0 refusé, réponse 0x350 [20, 0, 0]");
     T07_Tache(2010);
     ok = 1;
-    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 10, 20, 30);
-    VERIFIE(ok, "éclairage appliqué aux 8 DEL d'indice pair");
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 0, 0, 0);
+    VERIFIE(ok, "BAS : DEL du dessous toujours éteintes");
     avant = nb_envoyees;
     cmd(0x130, 5, 21, 1, 1, 1, 1, 0);
     cmd(0x130, 5, 22, 2, 1, 1, 1, 0);
@@ -143,8 +143,9 @@ int main(void)
     VERIFIE(derniere_reponse(0x350, 24, 0, 0), "éclairage DLC 4 refusé");
     cmd(0x130, 0, 0, 0, 0, 0, 0, 0);
     VERIFIE(derniere_reponse(0x350, 0, 0xFF, 0), "éclairage DLC 0 refusé (niveau inconnu)");
-    T07_Tache(2020);
-    VERIFIE(del_est(0, 10, 20, 30), "éclairage inchangé après les refus");
+    uint8_t er, ev, eb;
+    T07_LireEclairage(&er, &ev, &eb);
+    VERIFIE(er == 0 && ev == 0 && eb == 0, "BAS : éclairage lu = 0,0,0");
 
     /* Autres identifiants : ignorés */
     avant = nb_envoyees;
@@ -160,7 +161,7 @@ int main(void)
     ok = 1;
     for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 255, 255, 0);
     VERIFIE(ok, "perte du RPi : 7 témoins jaunes (phase allumée)");
-    VERIFIE(del_est(0, 10, 20, 30), "perte du RPi : éclairage conservé");
+    VERIFIE(del_est(0, 0, 0, 0), "perte du RPi : DEL du dessous toujours éteintes");
     T07_Tache(3500);
     VERIFIE(del_est(5, 0, 0, 0), "perte du RPi : témoins éteints (phase éteinte)");
     T07_SignalerRpi(true);
@@ -188,37 +189,74 @@ int main(void)
     T07_Stats s = T07_LireStats();
     VERIFIE(s.reponses_non_envoyees == 0, "toutes les réponses ont été envoyées");
 
-    /* ===== Nœud HAUT ===== */
-    nb_envoyees = 0;
-    VERIFIE(T07_Init(&T07_CONFIG_HAUT, &spi, espion_envoyer), "init HAUT");
-    T07_Tache(0);
-    cmd(0x340, 6, 40, 8, 0, 255, 0, 0);
-    VERIFIE(derniere_reponse(0x342, 40, 8, 1), "HAUT : place 8 → réponse 0x342");
-    avant = nb_envoyees;
-    cmd(0x340, 6, 41, 7, 0, 255, 0, 0);
-    VERIFIE(nb_envoyees == avant, "HAUT : place 7 (BAS) ignorée");
-    cmd(0x130, 5, 42, 1, 5, 5, 5, 0);
-    VERIFIE(derniere_reponse(0x351, 42, 1, 1), "HAUT : éclairage niveau 1 → 0x351");
-    T07_Tache(10);
-    VERIFIE(del_est(1, 0, 255, 0) && del_est(0, 5, 5, 5), "HAUT : place 8 = indice 1, éclairage indices pairs");
-
-    /* ===== Borne ===== */
+    /* ===== BORNE : places 8 à 14 + éclairage du niveau 1 ===== */
     nb_envoyees = 0;
     VERIFIE(T07_Init(&T07_CONFIG_BORNE, &spi, espion_envoyer), "init BORNE");
     T07_Tache(0);
-    VERIFIE(spi.last_size == 40, "BORNE : trame de 8 DEL");
+    VERIFIE(spi.last_size == 68, "BORNE : trame de 15 DEL (PCB-03)");
+    ok = 1;
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 64, 64, 64);
+    for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 0, 0, 0);
+    VERIFIE(ok, "BORNE : démarrage, éclairage blanc modéré et témoins éteints");
+    cmd(0x340, 6, 40, 8, 0, 255, 0, 0);
+    VERIFIE(derniere_reponse(0x342, 40, 8, 1), "BORNE : place 8 → réponse 0x342");
+    cmd(0x340, 6, 41, 14, 0, 0, 255, 0);
+    VERIFIE(derniere_reponse(0x342, 41, 14, 1), "BORNE : place 14 → réponse 0x342");
+    avant = nb_envoyees;
+    cmd(0x340, 6, 42, 7, 0, 255, 0, 0);
+    VERIFIE(nb_envoyees == avant, "BORNE : place 7 (BAS) ignorée");
+    cmd(0x340, 6, 43, 15, 0, 255, 0, 0);
+    VERIFIE(derniere_reponse(0x342, 43, 15, 0), "BORNE : place 15 refusée");
+    cmd(0x130, 5, 44, 1, 5, 6, 7, 0);
+    VERIFIE(derniere_reponse(0x351, 44, 1, 1), "BORNE : éclairage niveau 1 → 0x351");
+    avant = nb_envoyees;
+    cmd(0x130, 5, 45, 0, 1, 1, 1, 0);
+    cmd(0x130, 5, 46, 2, 1, 1, 1, 0);
+    VERIFIE(nb_envoyees == avant, "BORNE : niveaux 0 et 2 ignorés");
+    T07_Tache(10);
+    VERIFIE(del_est(1, 0, 255, 0) && del_est(13, 0, 0, 255), "BORNE : place 8 = indice 1, place 14 = indice 13");
+    ok = 1;
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 5, 6, 7);
+    VERIFIE(ok, "BORNE : éclairage sur les 8 DEL d'indice pair");
+    VERIFIE(T07_LirePlace(8, &p) && !T07_LirePlace(1, &p), "BORNE : possède la place 8, pas la place 1");
+
+    /* ===== HAUT : éclairage du niveau 2 seulement ===== */
+    nb_envoyees = 0;
+    VERIFIE(T07_Init(&T07_CONFIG_HAUT, &spi, espion_envoyer), "init HAUT");
+    T07_Tache(0);
+    VERIFIE(spi.last_size == 68, "HAUT : trame de 15 DEL (PCB-03)");
     cmd(0x340, 6, 50, 3, 1, 1, 1, 0);
-    cmd(0x340, 6, 51, 0, 1, 1, 1, 0);
-    VERIFIE(nb_envoyees == 0, "BORNE : aucune réponse aux commandes de places");
-    cmd(0x130, 5, 52, 2, 200, 100, 50, 0);
-    VERIFIE(derniere_reponse(0x352, 52, 2, 1), "BORNE : éclairage niveau 2 → 0x352");
+    cmd(0x340, 6, 51, 10, 1, 1, 1, 0);
+    cmd(0x340, 6, 52, 0, 1, 1, 1, 0);
+    VERIFIE(nb_envoyees == 0, "HAUT : aucune réponse aux commandes de places");
+    avant = nb_envoyees;
+    cmd(0x130, 5, 53, 0, 1, 1, 1, 0);
+    cmd(0x130, 5, 54, 1, 1, 1, 1, 0);
+    VERIFIE(nb_envoyees == avant, "HAUT : niveaux 0 et 1 ignorés");
+    cmd(0x130, 5, 55, 2, 200, 100, 50, 0);
+    VERIFIE(derniere_reponse(0x352, 55, 2, 1), "HAUT : éclairage niveau 2 → 0x352");
     T07_Tache(10);
     ok = 1;
-    for (int k = 0; k < 8; k++) ok &= del_est(k, 200, 100, 50);
-    VERIFIE(ok, "BORNE : 8 DEL d'éclairage");
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 200, 100, 50);
+    for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 0, 0, 0);
+    VERIFIE(ok, "HAUT : éclairage sur les indices pairs, témoins du dessus éteints");
     T07_SignalerRpi(true); T07_SignalerRpi(false);
     T07_Tache(20);
-    VERIFIE(del_est(0, 200, 100, 50), "BORNE : perte du RPi, éclairage conservé");
+    VERIFIE(del_est(0, 200, 100, 50) && del_est(1, 0, 0, 0), "HAUT : perte du RPi, éclairage conservé, rien en jaune");
+
+    /* ===== Configurations invalides refusées par T07_Init ===== */
+    static const uint8_t indice_trop_grand[1] = { 15u };
+    T07_Config mauvaise = T07_CONFIG_HAUT;
+    mauvaise.indices_eclairage = indice_trop_grand;
+    mauvaise.nb_eclairage = 1u;
+    VERIFIE(!T07_Init(&mauvaise, &spi, espion_envoyer), "indice d'éclairage hors de la chaîne refusé");
+    mauvaise = T07_CONFIG_HAUT;
+    mauvaise.indices_eclairage = NULL;
+    VERIFIE(!T07_Init(&mauvaise, &spi, espion_envoyer), "éclairage sans table refusé");
+    mauvaise = T07_CONFIG_BORNE;
+    mauvaise.indice_place = indice_trop_grand;
+    mauvaise.nb_places = 1u;
+    VERIFIE(!T07_Init(&mauvaise, &spi, espion_envoyer), "indice de place hors de la chaîne refusé");
 
     printf("%d/%d vérifications réussies\n", total - echecs, total);
     return echecs == 0 ? 0 : 1;

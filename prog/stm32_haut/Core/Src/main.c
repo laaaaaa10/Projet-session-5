@@ -27,7 +27,7 @@
 #include "stepper_motor.h"
 #include "drive_motor.h"
 #include "inductive_sensor.h"
-#include "temp_test.h"          /* TEMP-TEST */
+#include "parking_high.h"
 
 /* USER CODE END Includes */
 
@@ -58,10 +58,6 @@ TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim12;
 
 /* USER CODE BEGIN PV */
-ClickBoard_HandleTypeDef      clickboard;                            /* ClickBoard sur MikroBus 2 (I2C1) */
-InductiveSensor_HandleTypeDef inductive;                             /* capteurs d'étage */
-HAL_StatusTypeDef             clickboard_status;                     /* HAL_OK = ClickBoard trouvé */
-uint8_t                       floor_active[INDUCTIVE_SENSOR_COUNT];  /* 1 = cible détectée */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -121,11 +117,7 @@ int main(void)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   DriveMotor_Init();
-  clickboard_status = ClickBoard_InitPWM(&clickboard, &hi2c1);
-  if (clickboard_status == HAL_OK)
-  {
-    InductiveSensor_Init(&inductive, &clickboard);
-  }
+  ParkingHigh_Init(&hi2c1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -136,24 +128,7 @@ int main(void)
     
 
     /* USER CODE BEGIN 3 */
-    //Stepper_Rotate(&stepper_rotation, STEPPER_HORAIRE, 800U, 560U);
-    //Stepper_Rotate(&stepper_height, STEPPER_ANTIHORAIRE, 200U, 560U);
-	  DriveMotor_Run(DRIVEMOTOR_SORTIR, 100U);
-	  HAL_Delay(3000U);
-	  DriveMotor_Stop();
-	  HAL_Delay(1000U);
-	  DriveMotor_Run(DRIVEMOTOR_RENTRER, 100U);
-	  HAL_Delay(3000U);
-	  DriveMotor_Stop();
-	  HAL_Delay(1000U);
-
-    /* TU-10 : lecture des 3 capteurs d'étage */
-    for (uint8_t i = 0U; i < INDUCTIVE_SENSOR_COUNT; i++)
-    {
-      InductiveSensor_Read(&inductive, i, &floor_active[i]);
-    }
-    TempTest_Floor(&inductive);   /* TEMP-TEST */
-
+    ParkingHigh_Process();
   }
   /* USER CODE END 3 */
 }
