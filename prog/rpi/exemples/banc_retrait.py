@@ -62,6 +62,9 @@ class BusRetraitSimule:
     def abonner(self, identifiants, rappel):
         self._abonnements.append((set(identifiants), rappel))
 
+    def desabonner(self, rappel):
+        self._abonnements = [(ids, cb) for ids, cb in self._abonnements if cb != rappel]
+
     def emettre(self, ident, donnees):
         for ids, rappel in self._abonnements:
             if ident in ids:

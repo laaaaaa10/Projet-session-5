@@ -1,7 +1,9 @@
 # T12 — Préparation du retrait et contrat proposé avec T04
 
 Portée de ce document : premier incrément financier. La machine mécanique et
-son état actuel sont décrits dans [ESSAIS_T12.md](ESSAIS_T12.md).
+son état sont décrits dans [ESSAIS_T12.md](ESSAIS_T12.md). Le raccordement
+Qt/T01 développé ensuite est documenté dans [RACCORDEMENT_T12.md](RACCORDEMENT_T12.md) ;
+les constats ci-dessous décrivent le premier incrément historique.
 
 Base examinée : `ea44e864102d025fb74f18d0a5f13d0d8857482f` (26 novembre 2026).
 Ce premier incrément porte sur la demande et le paiement. Il ne réalise aucun
@@ -95,7 +97,9 @@ dont la validation complète dépasse l'échéance reste incertain et n'autorise
 pas le retrait ; aucun remboursement n'est inventé. Cela ne garantit pas les
 délais du stockage réel : ce cas doit être traité avec le responsable T04.
 
-**Point à régler avant raccordement réel :** `Borne.actualiser()` traite les
+**Raccordement désormais développé et testé en simulation :** le garde
+`InterfaceGardePaiementRetrait` est appelé par `LecteurGardeRetrait` dans le
+travailleur Qt. Le vrai T04 doit encore l'implémenter. Le problème initial était : `Borne.actualiser()` traite les
 lectures RFID avant `t04.actualiser()`. Ajouter seulement un timer de 60 s dans
 T12 laisserait donc passer un badge tardif. Le garde d'échéance doit être dans
 le chemin de paiement propriétaire, avant chaque débit, y compris pour plusieurs

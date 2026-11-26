@@ -54,12 +54,13 @@ class Services:
             for numero in range(1, NB_PLACES + 1):
                 self.modele.changer_presence(numero, Presence.ABSENT)
 
-        self.pont_t02 = PontT02Qt(dossier_donnees, simulation=simulation,
-                                  options_lecteur=options_lecteur)
         self.reservation = GestionReservation(self.modele, self._creer_transaction,
                                               raccordements.conditions_confirmation)
         self.billets = creer_gestion_billets(self.can)
         self.depot = creer_gestion_depot(self.can, self.modele, raccordements.facturation)
+        self.pont_t02 = PontT02Qt(dossier_donnees, simulation=simulation,
+            options_lecteur=options_lecteur, contexte_retrait={
+                "can": self.can, "stationnement": self.modele, "depot": self.depot})
 
     def demarrer(self):
         """Ouvre le bus CAN puis le lecteur RFID. Sans bus, la borne reste utilisable

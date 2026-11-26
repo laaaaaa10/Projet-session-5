@@ -90,3 +90,25 @@ class InterfaceFacturationRetrait(Protocol):
         Même ID : aucun nouvel effet. Ne clôture jamais le stationnement.
         """
         ...
+
+
+class InterfaceGardePaiementRetrait(Protocol):
+    """Complément T04 pour le chemin RFID du travailleur, sans second consommateur."""
+
+    def avant_presentation(self) -> bool:
+        """Réconcilier/expirer avant CHAQUE badge, y compris dans un même lot.
+
+        True uniquement si une tentative peut encore être débitée. À échéance,
+        annuler l'attente T02 et retourner False. Ne jamais prolonger la fenêtre.
+        Le raccordement ne transmet pas le badge à T02 lorsque ce garde refuse.
+        """
+        ...
+
+    def apres_presentation(self) -> None:
+        """Horodater la fin de l'appel T02, même en cas d'exception.
+
+        Ce rappel n'est pas une preuve de paiement : consulter le reçu durable.
+        Une validation achevée à/après l'échéance reste incertaine ; aucun autre
+        débit ni remboursement automatique ne peut être déduit de ce rappel.
+        """
+        ...

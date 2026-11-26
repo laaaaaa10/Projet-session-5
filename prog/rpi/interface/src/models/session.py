@@ -22,6 +22,7 @@ class Session:
     place: int | None = None        # 1 à 14
     numero: int | None = None       # numéro de billet saisi (retrait), en attente de T04
     id_paiement: str | None = None  # demande de paiement T04 affichée (retrait)
+    id_retrait: str | None = None   # ID stable T12, distinct de chaque tentative T02
     en_cours: bool = False          # transaction créée ou payée : plus d'annulation
 
     def commencer(self, operation, id_session=None):
@@ -34,4 +35,5 @@ class Session:
         """Aucune opération en cours."""
         self.operation = self.id_session = self.id_uart = None
         self.transaction_id = self.place = self.numero = self.id_paiement = None
+        self.id_retrait = None
         self.en_cours = False
