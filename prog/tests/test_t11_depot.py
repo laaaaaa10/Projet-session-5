@@ -9,7 +9,7 @@ un dernier test utilise le simulateur sur bus virtuel (si python-can).
 Usage : python3 -m unittest prog/tests/test_t11_depot.py -v
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T11)
+
 """
 from datetime import datetime
 from pathlib import Path

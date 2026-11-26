@@ -4,7 +4,6 @@ test_t03_reservation.py - T03 : tests automatiques de la r√©servation (sans mat√
 Usage : python3 -m unittest prog/tests/test_t03_reservation.py -v
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T03)
 """
 from pathlib import Path
 import sys

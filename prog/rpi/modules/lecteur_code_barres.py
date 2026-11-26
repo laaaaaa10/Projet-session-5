@@ -16,7 +16,6 @@ de la disposition du clavier (fr-CA, en-US...).
   - est_disponible()       indique si le lecteur est branché
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T05)
 """
 import re
 import threading

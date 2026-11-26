@@ -10,7 +10,6 @@ et T13 (supervision) lisent et modifient ce modèle ; il est protégé par un ve
 car la réception CAN se fait dans un autre fil.
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T03) - proposition de modèle commun
 """
 import threading
 from enum import Enum

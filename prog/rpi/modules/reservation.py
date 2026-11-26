@@ -15,7 +15,6 @@ Identification : la carte RFID est lue par T02 (signal carte_lue du pont Qt) ;
 evaluer_carte() calcule le solde, le tarif et la durée maximale à afficher.
 
 Projet ESA - 243-557 - Automne 2026
-Auteur : Edwin (T03)
 """
 import time
 
