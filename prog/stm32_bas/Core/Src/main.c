@@ -35,6 +35,10 @@
 #include "t07_del.h"     /* T07 : DEL de places et eclairage */
 #include "essai_t07.h"   /* essai de T07 par la console */
 #include "essai_del.h"   /* balayage des DEL une a une (releve des positions) */
+#include "t06_ir.h"      /* T06 : detection IR des places */
+#include "t06_pcb04.h"   /* T06 : ClickBoard PCB-04 (pilote de l'enseignant) */
+#include "essai_t06.h"   /* essai de T06 par la console */
+#include "esa_noeud.h"   /* ESA_NOEUD : BAS, HAUT ou BORNE (esa_noeud.h) */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,10 +48,19 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* 1 = CAN en boucle interne : Discovery seule, sans transceiver ni autre noeud */
-#define ESSAI_CAN_LOOPBACK   1
+/* 1 = CAN en boucle interne : Discovery seule, sans transceiver ni autre noeud
+ * 0 = vrai bus CAN (plusieurs STM32 relies par le bornier CAN du PCB-12) */
+#define ESSAI_CAN_LOOPBACK   0
+/* 1 = sur le vrai bus, ce STM32 joue aussi le faux RPi (demo, hb, ecl...) : il traite
+ *     ses propres trames (echo local). Un seul noeud du bus le fait : le BAS. */
+#define ESSAI_FAUX_RPI       (ESA_NOEUD == ESA_NOEUD_BAS)
 /* 1 = balayage des DEL une a une (essai_del) au lieu de l'application T07 */
 #define ESSAI_BALAYAGE_DEL   0
+/* 1 = essai sur le banc : le BAS allume aussi l'eclairage du niveau 0 (DEL du dessous de
+ *     sa PCB-03) pour demontrer ecl. Mettre 0 pour la maquette (le BAS n'a pas d'eclairage). */
+#define ESSAI_ECLAIRAGE_BANC 1
+/* Cartes PCB-04 branchees pour T06 : 1 = MikroBus 1 seulement, 2 = MikroBus 1 et 2 */
+#define ESSAI_NB_CARTES_IR   2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,6 +71,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
+static T06_Pcb04 s_ir_pcb04[T06_NB_CARTES_MAX];   /* ClickBoard PCB-04 de T06 */
+static T06_Carte s_ir_cartes[T06_NB_CARTES_MAX];
+#endif
 
 /* USER CODE END PV */
 
@@ -119,10 +136,34 @@ int main(void)
   {
     Console_Ecrire("ERREUR : CanEsa_Init\r\n");
   }
+  CanEsa_ActiverEchoLocal(ESSAI_FAUX_RPI);
+#if (ESA_NOEUD == ESA_NOEUD_BAS) && ESSAI_ECLAIRAGE_BANC
+  if (!T07_Init(&T07_CONFIG_BAS_BANC, &hspi1, CanEsa_Envoyer))
+#else
   if (!T07_Init(T07_ConfigDuNoeud(), &hspi1, CanEsa_Envoyer))
+#endif
   {
     Console_Ecrire("ERREUR : T07_Init\r\n");
   }
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
+  /* T06 : PCB-04 sur MikroBus 1 (I2C3, PWM TIM3 CH4 / PB1) et MikroBus 2 (I2C1, PWM TIM2 CH2 / PA1) */
+  if (!T06_Pcb04_Init(&s_ir_pcb04[0], &hi2c3, &htim3, TIM_CHANNEL_4))
+  {
+    Console_Ecrire("ERREUR : PCB-04 du MikroBus 1 (I2C3, adresse 0x20)\r\n");
+  }
+  s_ir_cartes[0] = T06_Pcb04_Interface(&s_ir_pcb04[0]);
+#if (ESSAI_NB_CARTES_IR >= 2)
+  if (!T06_Pcb04_Init(&s_ir_pcb04[1], &hi2c1, &htim2, TIM_CHANNEL_2))
+  {
+    Console_Ecrire("ERREUR : PCB-04 du MikroBus 2 (I2C1, adresse 0x20)\r\n");
+  }
+  s_ir_cartes[1] = T06_Pcb04_Interface(&s_ir_pcb04[1]);
+#endif
+  if (!T06_Init(s_ir_cartes, ESSAI_NB_CARTES_IR, CanEsa_Envoyer, HAL_GetTick()))
+  {
+    Console_Ecrire("ERREUR : T06_Init\r\n");
+  }
+#endif
   Noeud_Init(HAL_GetTick());
   EssaiT07_Init();
 #endif
@@ -139,10 +180,16 @@ int main(void)
     EssaiDel_Tache();
 #else
     uint32_t maintenant = HAL_GetTick();
-    Noeud_Tache(maintenant);      /* lit le CAN : heartbeat du RPi, commandes T07 */
+    Noeud_Tache(maintenant);      /* lit le CAN : heartbeat du RPi, commandes T06 et T07 */
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
+    T06_Tache(maintenant);        /* balayage IR, 0x300 / 0x301 */
+#endif
     T07_Tache(maintenant);        /* clignotement et mise a jour des DEL */
     CanEsa_Tache(maintenant);     /* annule les envois CAN bloques */
     EssaiT07_Tache(maintenant);   /* commandes tapees dans la console */
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
+    EssaiT06_Tache(maintenant);   /* demo : faux RPi T06 -> T07 */
+#endif
 #endif
     Console_Tache();
   }

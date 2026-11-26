@@ -31,6 +31,13 @@
  *   - le module n'interprète pas les états logiques : il applique les couleurs
  *     transmises par le RPi.
  *
+ * Ambiance (HAUT seulement) : les témoins du dessus de la PCB-03 du haut n'ont pas de
+ * places ; ils forment un 2e groupe d'éclairage, « ambiance des parkings », rouge modéré
+ * au démarrage et réglé par T07_ReglerAmbiance (trame d'essai 0x7F1, hors protocole).
+ *
+ * Surcouche : un autre module (ex. disco.c) peut modifier l'image juste avant chaque
+ * envoi (T07_DefinirSurcouche). T07 continue de traiter les commandes normalement.
+ *
  * Comportement sûr :
  *   - au démarrage : témoins éteints, éclairage blanc modéré (s'il y en a) ;
  *   - perte du RPi (signalée par T07_SignalerRpi(false)) : témoins en jaune
@@ -55,6 +62,11 @@
 #define T07_INCONNU_V                 255u
 #define T07_INCONNU_B                 0u
 #define T07_MAX_PLACES_NOEUD          7u
+#define T07_AMBIANCE_DEMARRAGE_R      64u    /* ambiance des parkings du haut : rouge modéré */
+#define T07_AMBIANCE_DEMARRAGE_V      0u
+#define T07_AMBIANCE_DEMARRAGE_B      0u
+
+typedef struct { uint8_t r, v, b; } T07_Couleur;
 
 /* Fonction d'envoi d'une trame CAN (ex. CanEsa_Envoyer). */
 typedef bool (*T07_EnvoyerTrame)(uint16_t id, const uint8_t *data, uint8_t dlc);
@@ -69,6 +81,9 @@ typedef struct
     uint8_t        niveau_eclairage;      /* 0, 1 ou 2 : niveau dont le nœud répond */
     const uint8_t *indices_eclairage;     /* DEL d'éclairage dans la chaîne */
     uint8_t        nb_eclairage;          /* 0 : niveau sans DEL, ses commandes sont refusées */
+    const uint8_t *indices_ambiance;      /* 2e groupe d'éclairage (témoins du HAUT), ou NULL */
+    uint8_t        nb_ambiance;
+    T07_Couleur    ambiance_demarrage;
     uint8_t        nb_del;                /* longueur de la chaîne */
 } T07_Config;
 
@@ -98,9 +113,25 @@ typedef struct
 extern const T07_Config T07_CONFIG_BAS;
 extern const T07_Config T07_CONFIG_HAUT;
 extern const T07_Config T07_CONFIG_BORNE;
+/* Essai sur le banc seulement : BAS (places 1 à 7) + éclairage du niveau 0 sur les DEL
+ * du dessous, pour démontrer l'éclairage avec une seule Discovery. Pas pour la maquette. */
+extern const T07_Config T07_CONFIG_BAS_BANC;
 
 /* Configuration du nœud compilé (ESA_NOEUD). */
 const T07_Config *T07_ConfigDuNoeud(void);
+
+/* Configuration passée à T07_Init (NULL avant l'initialisation). */
+const T07_Config *T07_ConfigActive(void);
+
+/* Ambiance des parkings (nœud dont la config a nb_ambiance > 0). false sinon. */
+bool T07_ReglerAmbiance(uint8_t r, uint8_t v, uint8_t b);
+bool T07_LireAmbiance(uint8_t *r, uint8_t *v, uint8_t *b);
+
+/* Surcouche appelée par T07_Tache sur l'image complète (nb_del DEL) juste avant l'envoi ;
+ * elle peut remplacer la couleur de certaines DEL (animation). NULL = aucune.
+ * La surcouche n'est pas retirée par T07_Init. */
+typedef void (*T07_Surcouche)(T07_Couleur *image, uint8_t nb_del, uint32_t maintenant_ms);
+void T07_DefinirSurcouche(T07_Surcouche surcouche);
 
 /* Prépare la chaîne de DEL et l'état de démarrage. Rien n'est envoyé avant T07_Tache(). */
 bool T07_Init(const T07_Config *config, SPI_HandleTypeDef *hspi, T07_EnvoyerTrame envoyer);

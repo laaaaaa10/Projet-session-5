@@ -67,12 +67,28 @@ const T07_Config T07_CONFIG_BORNE =
 
 const T07_Config T07_CONFIG_HAUT =
 {
-    .id_reponse_del       = 0u,                   /* pas de témoins de places */
+    .id_reponse_del       = 0u,                   /* pas de places : les témoins servent d'ambiance */
     .id_reponse_eclairage = CAN_ID_ECLAIRAGE_NIV2_ETAT,
     .premiere_place       = 0u,
     .nb_places            = 0u,
     .indice_place         = NULL,
     .niveau_eclairage     = 2u,
+    .indices_eclairage    = PCB03_INDICES_ECLAIRAGE,
+    .nb_eclairage         = (uint8_t)sizeof(PCB03_INDICES_ECLAIRAGE),
+    .indices_ambiance     = PCB03_INDICES_PLACES,     /* témoins du dessus (« parkings ») */
+    .nb_ambiance          = T07_MAX_PLACES_NOEUD,
+    .ambiance_demarrage   = { T07_AMBIANCE_DEMARRAGE_R, T07_AMBIANCE_DEMARRAGE_V, T07_AMBIANCE_DEMARRAGE_B },
+    .nb_del               = PCB03_NB_DEL,
+};
+
+const T07_Config T07_CONFIG_BAS_BANC =
+{
+    .id_reponse_del       = CAN_ID_DEL_PLACES_1_7_ETAT,
+    .id_reponse_eclairage = CAN_ID_ECLAIRAGE_NIV0_ETAT,
+    .premiere_place       = 1u,
+    .nb_places            = 7u,
+    .indice_place         = PCB03_INDICES_PLACES,
+    .niveau_eclairage     = 0u,
     .indices_eclairage    = PCB03_INDICES_ECLAIRAGE,
     .nb_eclairage         = (uint8_t)sizeof(PCB03_INDICES_ECLAIRAGE),
     .nb_del               = PCB03_NB_DEL,
@@ -92,13 +108,15 @@ const T07_Config *T07_ConfigDuNoeud(void)
 }
 
 /* ---- État du module ---- */
-typedef struct { uint8_t r, v, b; } Couleur;
+typedef T07_Couleur Couleur;
 
 static const T07_Config         *s_cfg = NULL;
 static T07_EnvoyerTrame          s_envoyer = NULL;
 static RgbLedChain_HandleTypeDef s_chaine;              /* globale : lue par le DMA */
 static T07_Place                 s_places[T07_MAX_PLACES_NOEUD];
 static Couleur                   s_eclairage;
+static Couleur                   s_ambiance;
+static T07_Surcouche             s_surcouche = NULL;
 static bool                      s_rpi_en_ligne = false;
 static T07_Stats                 s_stats;
 
@@ -193,6 +211,7 @@ bool T07_Init(const T07_Config *config, SPI_HandleTypeDef *hspi, T07_EnvoyerTram
     if ((config == NULL) || (config->nb_places > T07_MAX_PLACES_NOEUD) ||
         ((config->nb_places > 0u) && (config->indice_place == NULL)) ||
         ((config->nb_eclairage > 0u) && (config->indices_eclairage == NULL)) ||
+        ((config->nb_ambiance > 0u) && (config->indices_ambiance == NULL)) ||
         (config->nb_del > RGB_LED_CHAIN_MAX_LEDS))
     {
         return false;
@@ -204,6 +223,10 @@ bool T07_Init(const T07_Config *config, SPI_HandleTypeDef *hspi, T07_EnvoyerTram
     for (uint8_t i = 0u; i < config->nb_eclairage; i++)
     {
         if (config->indices_eclairage[i] >= config->nb_del) { return false; }
+    }
+    for (uint8_t i = 0u; i < config->nb_ambiance; i++)
+    {
+        if (config->indices_ambiance[i] >= config->nb_del) { return false; }
     }
     if (RgbLedChain_Init(&s_chaine, hspi, config->nb_del) != HAL_OK)
     {
@@ -222,6 +245,14 @@ bool T07_Init(const T07_Config *config, SPI_HandleTypeDef *hspi, T07_EnvoyerTram
     else
     {
         s_eclairage.r = 0u; s_eclairage.v = 0u; s_eclairage.b = 0u;
+    }
+    if (config->nb_ambiance > 0u)
+    {
+        s_ambiance = config->ambiance_demarrage;
+    }
+    else
+    {
+        s_ambiance.r = 0u; s_ambiance.v = 0u; s_ambiance.b = 0u;
     }
     s_rpi_en_ligne = false;
     memset(&s_stats, 0, sizeof s_stats);
@@ -275,6 +306,10 @@ void T07_Tache(uint32_t maintenant_ms)
     {
         image[s_cfg->indices_eclairage[i]] = s_eclairage;
     }
+    for (uint8_t i = 0u; i < s_cfg->nb_ambiance; i++)
+    {
+        image[s_cfg->indices_ambiance[i]] = s_ambiance;
+    }
 
     for (uint8_t i = 0u; i < s_cfg->nb_places; i++)
     {
@@ -296,6 +331,11 @@ void T07_Tache(uint32_t maintenant_ms)
             }
         }
         image[s_cfg->indice_place[i]] = c;
+    }
+
+    if (s_surcouche != NULL)
+    {
+        s_surcouche(image, s_cfg->nb_del, maintenant_ms);   /* animation (disco) */
     }
 
     if (!s_envoi_requis && (memcmp(image, s_image, s_cfg->nb_del * sizeof(Couleur)) == 0))
@@ -348,4 +388,35 @@ T07_Stats T07_LireStats(void)
 const RgbLedChain_HandleTypeDef *T07_Chaine(void)
 {
     return &s_chaine;
+}
+
+const T07_Config *T07_ConfigActive(void)
+{
+    return s_cfg;
+}
+
+bool T07_ReglerAmbiance(uint8_t r, uint8_t v, uint8_t b)
+{
+    if ((s_cfg == NULL) || (s_cfg->nb_ambiance == 0u))
+    {
+        return false;
+    }
+    s_ambiance.r = r; s_ambiance.v = v; s_ambiance.b = b;
+    return true;
+}
+
+bool T07_LireAmbiance(uint8_t *r, uint8_t *v, uint8_t *b)
+{
+    if ((s_cfg == NULL) || (s_cfg->nb_ambiance == 0u) || (r == NULL) || (v == NULL) || (b == NULL))
+    {
+        return false;
+    }
+    *r = s_ambiance.r; *v = s_ambiance.v; *b = s_ambiance.b;
+    return true;
+}
+
+void T07_DefinirSurcouche(T07_Surcouche surcouche)
+{
+    s_surcouche = surcouche;
+    s_envoi_requis = true;                                /* réafficher tout de suite */
 }

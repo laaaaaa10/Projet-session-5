@@ -15,6 +15,10 @@
  *   boîte. CanEsa_Tache() annule les envois bloqués trop longtemps.
  * - Mode loopback (essai sur la Discovery seule, sans transceiver) : le
  *   contrôleur reçoit ses propres trames ; l'accusé de réception est ignoré.
+ * - Écho local (essai sur le vrai bus, ce nœud joue aussi le « faux RPi ») :
+ *   chaque trame envoyée sur le bus est aussi placée dans la file de réception
+ *   locale, comme si le nœud l'avait reçue (le contrôleur CAN ne reçoit pas ses
+ *   propres trames en mode normal).
  */
 
 #ifndef INC_ESA_CAN_H_
@@ -61,5 +65,9 @@ CanEsa_Stats CanEsa_LireStats(void);
 
 /* true si le CAN tourne en loopback. */
 bool CanEsa_EnLoopback(void);
+
+/* Écho local des trames envoyées (sans effet en loopback, qui le fait déjà). */
+void CanEsa_ActiverEchoLocal(bool actif);
+bool CanEsa_EchoLocal(void);
 
 #endif /* INC_ESA_CAN_H_ */

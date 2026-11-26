@@ -12,6 +12,7 @@
 
 static CAN_HandleTypeDef *s_hcan = NULL;
 static bool s_loopback = false;
+static bool s_echo_local = false;
 
 /* File circulaire : l'interruption écrit à s_tete, la boucle principale lit à s_queue. */
 static TrameCan          s_file[CAN_ESA_TAILLE_FILE_RX];
@@ -20,6 +21,22 @@ static volatile uint8_t  s_queue = 0u;
 
 static volatile CanEsa_Stats s_stats;
 static uint32_t s_debut_blocage_tx = 0u;   /* 0 = boîtes non bloquées */
+
+/* Ajoute une trame à la file (appelée en interruption, ou avec les interruptions masquées). */
+static void empiler(uint16_t id, uint8_t dlc, const uint8_t *data8)
+{
+    uint8_t suivante = (uint8_t)((s_tete + 1u) % CAN_ESA_TAILLE_FILE_RX);
+    if (suivante == s_queue)
+    {
+        s_stats.perdues_rx++;           /* file pleine : trame perdue */
+        return;
+    }
+    s_file[s_tete].id  = id;
+    s_file[s_tete].dlc = dlc;
+    memcpy(s_file[s_tete].data, data8, 8);
+    s_tete = suivante;
+    s_stats.recues++;
+}
 
 bool CanEsa_Init(CAN_HandleTypeDef *hcan, bool loopback)
 {
@@ -89,6 +106,14 @@ bool CanEsa_Envoyer(uint16_t id, const uint8_t *data, uint8_t dlc)
         return false;
     }
     s_stats.envoyees++;
+
+    if (s_echo_local && !s_loopback)
+    {
+        uint32_t primask = __get_PRIMASK();
+        __disable_irq();                 /* la file est aussi remplie par l'interruption CAN */
+        empiler(id, dlc, copie);
+        if (primask == 0u) { __enable_irq(); }
+    }
     return true;
 }
 
@@ -108,17 +133,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         {
             continue;                       /* le protocole n'utilise que des trames de données standard */
         }
-        uint8_t suivante = (uint8_t)((s_tete + 1u) % CAN_ESA_TAILLE_FILE_RX);
-        if (suivante == s_queue)
-        {
-            s_stats.perdues_rx++;           /* file pleine : trame perdue */
-            continue;
-        }
-        s_file[s_tete].id  = (uint16_t)entete.StdId;
-        s_file[s_tete].dlc = (uint8_t)entete.DLC;
-        memcpy(s_file[s_tete].data, data, 8);
-        s_tete = suivante;
-        s_stats.recues++;
+        empiler((uint16_t)entete.StdId, (uint8_t)entete.DLC, data);
     }
 }
 
@@ -170,4 +185,14 @@ CanEsa_Stats CanEsa_LireStats(void)
 bool CanEsa_EnLoopback(void)
 {
     return s_loopback;
+}
+
+void CanEsa_ActiverEchoLocal(bool actif)
+{
+    s_echo_local = actif;
+}
+
+bool CanEsa_EchoLocal(void)
+{
+    return s_echo_local;
 }
