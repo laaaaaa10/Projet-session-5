@@ -3,8 +3,10 @@
 Base : `ea44e864102d025fb74f18d0a5f13d0d8857482f`, examinée le 26 novembre 2026.
 La préparation financière du premier incrément reste dans
 [INTERFACE_T12_T04.md](INTERFACE_T12_T04.md). Ce document décrit la mécanique,
-l'arbitrage et leur banc d'essai. Aucun branchement automatique n'est ajouté à
-`main.py`, `application/borne.py`, au pont Qt ou à l'écran T01.
+l'arbitrage et leur banc d'essai. Le raccordement Qt/T01 ajouté ensuite est décrit
+séparément dans [RACCORDEMENT_T12.md](RACCORDEMENT_T12.md) : parcours branché,
+partenaires réels encore bloquants. Les résultats ci-dessous sont ceux du
+jalon mécanique, avant ce raccordement.
 
 ## État vérifiable
 
@@ -87,7 +89,8 @@ Cela ne constitue pas une mesure indépendante de la position finale.
   sans ouvrir un autre bus.
 - Le callback CAN met les trames dans une file bornée. `mettre_a_jour()` traite
   la file, les délais, SQLite et T04 dans le **même thread de travail** que le
-  composant financier. Le futur pont Qt doit respecter cette propriété.
+  composant financier. Le pont Qt respecte maintenant cette propriété (voir le
+  document de raccordement).
 - [ArbitreMecanique](modules/arbitrage_mecanique.py) est associé à l'objet CAN.
   T11 et T12 acquièrent le même propriétaire exclusif. Le verrou reste occupé
   pendant l'attente IR et le retrait manuel ; un défaut empêche une autre tâche

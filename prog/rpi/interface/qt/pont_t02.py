@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal, pyqtSlot
 
-from application import integration_t03, integration_t04, integration_t13
+from application import integration_t03, integration_t04, integration_t12, integration_t13
 from application.acces_comptes import AccesComptes
 from application.acces_identification import AccesIdentification
 from application.borne import Borne
@@ -36,6 +36,7 @@ class _Signaux(QObject):
     carte_lue = pyqtSignal(object)  # IdentificationCarte, hors paiement
     paiement_en_attente = pyqtSignal(object)
     resultat_paiement = pyqtSignal(object)  # observation ; ne consomme pas la file T04
+    retrait_modifie = pyqtSignal(object)  # VueRetrait corrélée, jamais une commande CAN
     paiement_annule = pyqtSignal(str)
     reponse = pyqtSignal(str, str, object)
     erreur = pyqtSignal(object)  # IncidentQt
@@ -75,14 +76,16 @@ class _JournalQt(logging.Handler):
 
 
 class _Travailleur(_Signaux):
-    def __init__(self, dossier, simulation, options, fabrique_lecteur):
+    def __init__(self, dossier, simulation, options, fabrique_lecteur, contexte_retrait):
         super().__init__()
         self.dossier = dossier
         self.simulation = simulation
         self.options = options
         self.fabrique_lecteur = fabrique_lecteur
         self.lecteur = self.timer = self.journal = None
-        self.t13 = None
+        self.t13 = self.retrait = None
+        self.contexte_retrait = contexte_retrait
+        self._derniere_vue_retrait = None
         self.termine = False
 
     @pyqtSlot()
@@ -98,6 +101,8 @@ class _Travailleur(_Signaux):
                                identification=identification if self.t03 is not None else None)
             self.t04 = integration_t04.creer_module_t04(self.borne)
             self.t13 = integration_t13.creer_module_t13(self.acces)
+            self.retrait = integration_t12.creer_module_t12(
+                self.t04, dossier=self.dossier, t13=self.t13, **self.contexte_retrait)
             comptes = tuple(service.lister_comptes().values())
             if self.fabrique_lecteur is not None:
                 self.lecteur = self.fabrique_lecteur()
@@ -130,11 +135,19 @@ class _Travailleur(_Signaux):
         if self.termine:
             return
         try:
-            self.borne.actualiser(self.lecteur, t03=self.t03, t04=self.t04, t13=self.t13)
+            lecteur = integration_t12.LecteurGardeRetrait(self.lecteur, self.retrait)
+            self.borne.actualiser(lecteur, t03=self.t03, t04=self.t04, t13=self.t13)
+            self.retrait.actualiser()
+            self._publier_retrait(self.retrait.vue())
             self._vider_si_sans_t04()
         except Exception as erreur:
             self._signaler("", "lecture", erreur, fatal=True)
             self.fermer()
+
+    def _publier_retrait(self, vue):
+        if vue is not None and vue != self._derniere_vue_retrait:
+            self._derniere_vue_retrait = vue
+            self.retrait_modifie.emit(vue)
 
     @pyqtSlot(str, str, object)
     def commander(self, reference, action, arguments):
@@ -143,7 +156,12 @@ class _Travailleur(_Signaux):
         try:
             comptes = {"consulter_solde", "lister_soldes", "ajouter_credit", "retrouver_resultat_credit"}
             paiements = {"demander_paiement", "retrouver_resultat_paiement", "annuler_paiement"}
-            if action in comptes:
+            retraits = {"demander_retrait": "demander", "confirmer_retrait": "confirmer",
+                        "annuler_retrait": "annuler"}
+            if action in retraits:
+                resultat = getattr(self.retrait, retraits[action])(*arguments)
+                self._publier_retrait(resultat)
+            elif action in comptes:
                 resultat = getattr(self.acces, action)(*arguments)
             elif action in paiements:
                 resultat = getattr(self.borne, action)(*arguments)
@@ -154,7 +172,10 @@ class _Travailleur(_Signaux):
             self._vider_si_sans_t04()
             self.reponse.emit(reference, action, resultat)
         except Exception as erreur:
-            self._signaler(reference, action, erreur)
+            fatal = action in {"demander_retrait", "confirmer_retrait", "annuler_retrait"}
+            self._signaler(reference, action, erreur, fatal=fatal)
+            if fatal:
+                self.fermer()  # journal/contrat défaillant : pas de reprise au prochain timer
 
     @pyqtSlot()
     def fermer(self):
@@ -163,6 +184,11 @@ class _Travailleur(_Signaux):
         self.termine = True
         if self.timer is not None:
             self.timer.stop()
+        if self.retrait is not None:
+            try:
+                self.retrait.fermer()  # arrêter la séquence avant de libérer le lecteur
+            except Exception as erreur:
+                self._signaler("", "fermeture_t12", erreur, fatal=True)
         try:
             if self.lecteur is not None:
                 self.lecteur.fermer()
@@ -194,12 +220,13 @@ class PontT02Qt(_Signaux):
     _arret_demande = pyqtSignal()
 
     def __init__(self, dossier_donnees=DOSSIER_ACTIF, *, simulation=False,
-                 options_lecteur=None, fabrique_lecteur=None, parent=None):
+                 options_lecteur=None, fabrique_lecteur=None, contexte_retrait=None, parent=None):
         super().__init__(parent)
         self.dossier = dossier_donnees
         self.simulation = simulation
         self.options = dict(options_lecteur or {})
         self.fabrique_lecteur = fabrique_lecteur
+        self.contexte_retrait = dict(contexte_retrait or {})
         self._thread = self._travailleur = None
         self._accepte_commandes = False
         self._arret_en_cours = False
@@ -214,7 +241,7 @@ class PontT02Qt(_Signaux):
         self._arret_en_cours = False
         thread = self._thread = QThread(self)
         travailleur = self._travailleur = _Travailleur(
-            self.dossier, self.simulation, self.options, self.fabrique_lecteur,
+            self.dossier, self.simulation, self.options, self.fabrique_lecteur, self.contexte_retrait,
         )
         travailleur.moveToThread(thread)
         thread.started.connect(travailleur.demarrer)
@@ -223,7 +250,7 @@ class PontT02Qt(_Signaux):
         travailleur.pret.connect(self._pret, Qt.ConnectionType.QueuedConnection)
         travailleur.erreur.connect(self._erreur, Qt.ConnectionType.QueuedConnection)
         for nom in ("evenement_rfid", "carte_lue", "paiement_en_attente",
-                    "resultat_paiement", "paiement_annule", "reponse", "avertissement"):
+                    "resultat_paiement", "paiement_annule", "retrait_modifie", "reponse", "avertissement"):
             getattr(travailleur, nom).connect(getattr(self, nom), Qt.ConnectionType.QueuedConnection)
         travailleur.arrete.connect(thread.quit)
         travailleur.arrete.connect(travailleur.deleteLater)
@@ -286,3 +313,12 @@ class PontT02Qt(_Signaux):
 
     def simuler_badge(self, id_uart: str) -> str:
         return self._envoyer("simuler_badge", id_uart)
+
+    def demander_retrait(self, numero: int, id_demande: str) -> str:
+        return self._envoyer("demander_retrait", numero, id_demande)
+
+    def confirmer_retrait(self, id_demande: str) -> str:
+        return self._envoyer("confirmer_retrait", id_demande)
+
+    def annuler_retrait(self, id_demande: str) -> str:
+        return self._envoyer("annuler_retrait", id_demande)

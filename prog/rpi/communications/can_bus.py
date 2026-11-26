@@ -78,6 +78,11 @@ class ServiceCAN:
         with self._verrou:
             self._abonnements.append((ensemble, rappel))
 
+    def desabonner(self, rappel) -> None:
+        """Retire un module fermé sans arrêter le bus partagé ni ses autres abonnés."""
+        with self._verrou:
+            self._abonnements = [(ids, cb) for ids, cb in self._abonnements if cb != rappel]
+
     def _distribuer(self, message) -> None:
         if message.is_extended_id or message.is_remote_frame or message.is_error_frame:
             return                          # protocole ESA : trames de données standard

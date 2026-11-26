@@ -168,6 +168,14 @@ class GestionRetrait:
         self._progresser()
         return self.etape not in (EtapeRetrait.DEFAUT, EtapeRetrait.INTERROMPU)
 
+    def verifier_disponibilite(self, place):
+        """Lecture seule avant paiement ; toutes les conditions sont revérifiées au départ."""
+        if not self.demande.nouvelles_autorisees:
+            return "Nouvelles demandes interdites"
+        if self.occupe or self.arbitre.bloque or self.arbitre.proprietaire is not None:
+            return "Mécanique occupée ou arrêt verrouillé"
+        return self._conditions_initiales(place)
+
     def _conditions_initiales(self, place):
         probleme = self._controle_securite()
         if probleme:
@@ -566,9 +574,15 @@ class GestionRetrait:
         return self.etape.value
 
     def fermer(self):
-        if self._en_progression:
-            self.arreter()
-        self.db.close()
+        try:
+            if self._en_progression:
+                self.arreter()
+        finally:
+            # Un redémarrage du travailleur ne conserve pas l'ancien callback.
+            desabonner = getattr(self.can, "desabonner", None)
+            if callable(desabonner):
+                desabonner(self.traiter_trame)
+            self.db.close()
 
 
 def creer_gestion_retrait(service_can, stationnement, facturation, **options):
