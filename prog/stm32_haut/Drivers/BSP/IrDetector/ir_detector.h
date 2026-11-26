@@ -2,7 +2,7 @@
  * ir_detector.h
  *
  *  Created on: 18 nov. 2026
- *      Author: Layten
+ *      Author: Javier Bolduc
  */
 
 #ifndef BSP_IRDETECTOR_IR_DETECTOR_H_

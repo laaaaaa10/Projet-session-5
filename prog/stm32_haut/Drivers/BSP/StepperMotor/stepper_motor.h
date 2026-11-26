@@ -2,7 +2,7 @@
  * stepper.h
  *
  *  Created on: 19 nov. 2026
- *      Author: Layten
+ *      Author: Javier Bolduc
  */
 
 #ifndef INC_STEPPER_MOTOR_H_
@@ -10,34 +10,26 @@
 
 #include "stm32f4xx_hal.h"
 
-/* Fréquence de comptage des timers de STEP : 84 MHz / (PSC 83 + 1) = 1 MHz */
+/* Horloge des timers de STEP : 1 MHz */
 #define STEPPER_TICK_HZ  1000000U
 
-/* Sens de rotation : niveau envoyé sur la broche DIR du drive.
- * Si le moteur tourne à l'envers du nom, inverser les deux valeurs ici. */
+/* Niveau envoyé sur DIR. Si le moteur tourne à l'envers du nom, inverser les deux valeurs. */
 typedef enum
 {
     STEPPER_HORAIRE     = GPIO_PIN_SET,
     STEPPER_ANTIHORAIRE = GPIO_PIN_RESET
 } StepperSens_t;
 
-/* Accélération : un pas-à-pas lancé directement à grande vitesse cale ou vibre (le couple tombe quand la
- * vitesse monte). Les déplacements démarrent donc à STEPPER_START_HZ et montent linéairement jusqu'à la
- * fréquence demandée en STEPPER_RAMP_MS. Si le moteur cale encore : baisser la fréquence demandée, ou
- * STEPPER_START_HZ, ou allonger STEPPER_RAMP_MS. */
-#define STEPPER_START_HZ  60U
-#define STEPPER_RAMP_MS   800U
-
 /* Un moteur = un timer/canal PWM pour STEP + une broche DIR */
 typedef struct
 {
     TIM_HandleTypeDef *htim;      /* timer qui génère le STEP */
-    uint32_t           channel;   /* canal PWM du timer (TIM_CHANNEL_x) */
-    GPIO_TypeDef      *dir_port;  /* port de la broche DIR */
-    uint16_t           dir_pin;   /* broche DIR */
-    uint8_t            set;       /* jeu de broches utilisé (voir stepper_motor.c) */
+    uint32_t           channel;   /* canal PWM (TIM_CHANNEL_x) */
+    GPIO_TypeDef      *dir_port;
+    uint16_t           dir_pin;
+    uint8_t            set;       /* jeu de broches (voir stepper_motor.c) */
 
-    /* --- état interne, ne pas toucher --- */
+    /* état interne, ne pas toucher */
     uint8_t            running;
     uint8_t            ramping;
     uint8_t            move_active;
@@ -47,34 +39,28 @@ typedef struct
     uint32_t           t_move_end;
 } Stepper_HandleTypeDef;
 
-/* Les deux moteurs, déjà prêts (définis dans stepper_motor.c) */
+/* Les deux moteurs (définis dans stepper_motor.c) */
 extern Stepper_HandleTypeDef stepper_rotation;
 extern Stepper_HandleTypeDef stepper_height;
 
-/* ======================= FONCTIONS SIMPLES (bloquantes) =======================
- * L'accélération progressive (et donc la force du moteur) est gérée ICI, dans le driver : il suffit de
- * donner le sens, le nombre de pas et la vitesse. */
+/* ---- Bloquantes (avec rampe d'accélération) ---- */
 
-/* Tourne de N pas (sens, pas, fréquence en pas/s), puis s'arrête. Retourne quand le mouvement est fini. */
+/* Tourne de N pas (sens, pas, pas/s), puis s'arrête. */
 HAL_StatusTypeDef Stepper_Rotate(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t steps, uint32_t freq_hz);
 
-/* Tourne jusqu'à ce que stop() retourne 1 (ex. : lecture d'un capteur), puis s'arrête.
- * Retourne HAL_TIMEOUT si stop() n'a jamais répondu 1 avant timeout_ms. */
+/* Tourne jusqu'à ce que stop() retourne 1 (ex. : capteur). HAL_TIMEOUT après timeout_ms. */
 HAL_StatusTypeDef Stepper_RotateUntil(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t freq_hz,
                                       uint8_t (*stop)(void), uint32_t timeout_ms);
 
-/* ======================= FONCTIONS NON BLOQUANTES (avancé) =======================
- * Le programme continue pendant que le moteur tourne.
- * Stepper_Update() doit être appelé souvent (boucle principale) : il fait avancer la rampe et arrête
- * le moteur à la fin d'un Stepper_Move. */
+/* ---- Non bloquantes : appeler Stepper_Update() souvent ---- */
 
-/* Tourne jusqu'à Stepper_Stop, avec rampe d'accélération (ex. : jusqu'à un capteur). */
+/* Tourne jusqu'à Stepper_Stop, avec rampe. */
 HAL_StatusTypeDef Stepper_Run(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t freq_hz);
 
-/* Fait N pas avec rampe d'accélération, puis s'arrête tout seul (Stepper_IsMoving() repasse à 0). */
+/* N pas avec rampe, puis s'arrête tout seul (Stepper_IsMoving() repasse à 0). */
 HAL_StatusTypeDef Stepper_Move(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t steps, uint32_t freq_hz);
 
-/* Tourne à fréquence constante, sans rampe, jusqu'à Stepper_Stop. */
+/* Fréquence constante, sans rampe, jusqu'à Stepper_Stop. */
 HAL_StatusTypeDef Stepper_Start(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t freq_hz);
 
 HAL_StatusTypeDef Stepper_Stop(Stepper_HandleTypeDef *dev);

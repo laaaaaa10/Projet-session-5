@@ -2,7 +2,7 @@
  * inductive_sensor.h
  *
  *  Created on: 18 nov. 2026
- *      Author: Layten
+ *      Author: Javier Bolduc
  */
 
 #ifndef BSP_INDUCTIVESENSOR_INDUCTIVE_SENSOR_H_

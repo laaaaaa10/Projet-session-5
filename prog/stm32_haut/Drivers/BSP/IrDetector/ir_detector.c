@@ -2,7 +2,7 @@
  * ir_detector.c
  *
  *  Created on: 18 nov. 2026
- *      Author: Layten
+ *      Author: Javier Bolduc
  */
 
 

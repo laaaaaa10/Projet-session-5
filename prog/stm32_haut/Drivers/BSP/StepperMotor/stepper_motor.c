@@ -2,7 +2,7 @@
  * stepper.c
  *
  *  Created on: 19 nov. 2026
- *      Author: Layten
+ *      Author: Javier Bolduc
  */
 
 
@@ -12,16 +12,12 @@
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim12;
 
-/* ======================= CHOIX DES BROCHES DE CHAQUE MOTEUR =======================
- * Trois jeux de broches (STEP = signal d'impulsions, DIR = sens). Choisir un jeu par moteur plus bas.
- *
- *   JEU 0 : STEP = PB14 (TIM12 CH1), DIR = PC8   (P12 : IO1 / IO2)      <- considéré en panne, ne pas utiliser
- *   JEU 1 : STEP = PB0  (TIM3 CH3),  DIR = PC4   (P11 : pin 4 / pin 1)
- *   JEU 2 : STEP = PA2  (TIM5 CH3),  DIR = PA3   (P11 : pin 2 / pin 3)
- *
- * P11 (PMOD UART, schéma Rev.B) : pin 1 = PC4, pin 2 = PA2, pin 3 = PA3, pin 4 = PB0.
- * Les jeux 1 et 2 sont configurés par ce fichier au premier mouvement (rien à faire dans CubeMX).
- * Changer de jeu = changer un chiffre ci-dessous (et déplacer les fils du driver sur les broches du jeu). */
+/* Rampe : départ à STEPPER_START_HZ, montée linéaire jusqu'à la fréquence demandée en STEPPER_RAMP_MS. */
+#define STEPPER_START_HZ  60U
+#define STEPPER_RAMP_MS   800U
+
+/* Jeu de broches de chaque moteur (STEP / DIR) :
+ *   0 = PB14 / PC8 (en panne)    1 = PB0 / PC4    2 = PA2 / PA3        (détails dans le README) */
 #define STEPPER_ROTATION_PINS   2
 #define STEPPER_HEIGHT_PINS     1
 
@@ -39,7 +35,7 @@ extern TIM_HandleTypeDef htim12;
 #define SET2_DIR_PORT    GPIOA
 #define SET2_DIR_PIN     GPIO_PIN_3
 
-/* TIM5 (jeu 2) n'est pas dans CubeMX : initialisé ici, même horloge de 1 MHz que TIM3/TIM12 (84 MHz / 84). */
+/* TIM5 (jeu 2) n'est pas dans CubeMX : initialisé ici. */
 static TIM_HandleTypeDef htim_set2;
 
 #define HANDLE_INIT_0   { .htim = &htim12,     .channel = TIM_CHANNEL_1, .dir_port = DIR_HEIGHT_GPIO_Port, .dir_pin = DIR_HEIGHT_Pin, .set = 0U }
@@ -51,9 +47,9 @@ static TIM_HandleTypeDef htim_set2;
 Stepper_HandleTypeDef stepper_rotation = HANDLE_INIT(STEPPER_ROTATION_PINS);
 Stepper_HandleTypeDef stepper_height   = HANDLE_INIT(STEPPER_HEIGHT_PINS);
 
-static uint8_t set_ready[3] = { 1U, 0U, 0U };       /* le jeu 0 est déjà configuré par CubeMX */
+static uint8_t set_ready[3] = { 1U, 0U, 0U };       /* le jeu 0 vient de CubeMX */
 
-/* Configure DIR + STEP d'un jeu (jeux 1 et 2). Le timer du jeu 1 (TIM3) vient déjà de CubeMX. */
+/* Configure DIR + STEP d'un jeu (1 ou 2). */
 static HAL_StatusTypeDef set_init(uint8_t set)
 {
     GPIO_InitTypeDef gpio = {0};
@@ -125,7 +121,7 @@ static HAL_StatusTypeDef set_init(uint8_t set)
     return HAL_OK;
 }
 
-/* Écrit DIR, la fréquence de STEP (ARR, rapport cyclique 50 %) et lance le PWM. Rien d'autre. */
+/* Écrit DIR et la fréquence de STEP (50 %), puis lance le PWM. */
 static HAL_StatusTypeDef start_at(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t freq_hz)
 {
     if ((dev == NULL) || (freq_hz == 0U))
@@ -135,20 +131,20 @@ static HAL_StatusTypeDef start_at(Stepper_HandleTypeDef *dev, StepperSens_t sens
 
     if ((dev->set > 2U) || ((set_ready[dev->set] == 0U) && (set_init(dev->set) != HAL_OK)))
     {
-        return HAL_ERROR;                                                  /* jeu de broches invalide ou init échouée */
+        return HAL_ERROR;
     }
 
-    /* Période du PWM en ticks de 1 MHz (max 16 bits, même pour TIM5 qui est en 32 bits) */
+    /* période en ticks de 1 MHz (16 bits max) */
     uint32_t periode = (STEPPER_TICK_HZ / freq_hz) - 1U;
     if (periode > 0xFFFFU)
     {
         return HAL_ERROR;
     }
 
-    HAL_GPIO_WritePin(dev->dir_port, dev->dir_pin, (GPIO_PinState)sens);   /* sens de rotation */
+    HAL_GPIO_WritePin(dev->dir_port, dev->dir_pin, (GPIO_PinState)sens);
 
-    __HAL_TIM_SET_AUTORELOAD(dev->htim, periode);                          /* fréquence de STEP */
-    __HAL_TIM_SET_COMPARE(dev->htim, dev->channel, (periode + 1U) / 2U);   /* 50 % */
+    __HAL_TIM_SET_AUTORELOAD(dev->htim, periode);
+    __HAL_TIM_SET_COMPARE(dev->htim, dev->channel, (periode + 1U) / 2U);
     __HAL_TIM_SET_COUNTER(dev->htim, 0U);
 
     if (HAL_TIM_PWM_Start(dev->htim, dev->channel) != HAL_OK)
@@ -163,9 +159,7 @@ static HAL_StatusTypeDef start_at(Stepper_HandleTypeDef *dev, StepperSens_t sens
     return HAL_OK;
 }
 
-/* Change la fréquence pendant que le moteur tourne. ARR s'applique tout de suite : si le compteur est déjà
- * près de la fin de la période on ne touche à rien (le compteur devrait faire le tour des 16 bits) et on
- * réessaie au prochain appel. Retourne 1 si la fréquence a été changée. */
+/* Change la fréquence en marche. Ne fait rien (retourne 0) si le compteur est près de la fin de période. */
 static uint8_t change_freq(Stepper_HandleTypeDef *dev, uint32_t freq_hz)
 {
     uint32_t periode = (STEPPER_TICK_HZ / freq_hz) - 1U;
@@ -183,18 +177,16 @@ static uint8_t change_freq(Stepper_HandleTypeDef *dev, uint32_t freq_hz)
     return 1U;
 }
 
-/* Durée (ms) pour faire "steps" pas : rampe linéaire de f0 à f1 sur STEPPER_RAMP_MS, puis f1 constant.
- * Si le déplacement est plus court que la rampe, tout se fait à f0 (*ramp = 0).
- * On coupe à (pas - 0,5) : le STEP démarre par un front montant (= 1 pas), puis un pas par période. Couper au
- * milieu de la dernière période garde le bon nombre de pas malgré l'incertitude de 1 ms de HAL_GetTick. */
+/* Durée (ms) de "steps" pas : rampe de f0 à f1 sur STEPPER_RAMP_MS, puis f1 constant (*ramp = 0 si tout à f0).
+ * Coupe à (pas - 0,5) pour garder le bon nombre de pas malgré l'incertitude de 1 ms. */
 static uint32_t move_time_ms(uint32_t steps, uint32_t f0, uint32_t f1, uint8_t *ramp)
 {
-    uint64_t target2 = (uint64_t)((2U * steps) - 1U) * 1000U;              /* (pas - 0,5) x 2000 */
+    uint64_t target2 = (uint64_t)((2U * steps) - 1U) * 1000U;
 
     *ramp = 0U;
     if (f0 < f1)
     {
-        uint64_t ramp2 = (uint64_t)(f0 + f1) * STEPPER_RAMP_MS;            /* pas de la rampe x 2000 */
+        uint64_t ramp2 = (uint64_t)(f0 + f1) * STEPPER_RAMP_MS;
         if (target2 > ramp2)
         {
             *ramp = 1U;
@@ -282,7 +274,7 @@ void Stepper_Update(Stepper_HandleTypeDef *dev)
 
     if ((dev->move_active != 0U) && ((int32_t)(now - dev->t_move_end) >= 0))
     {
-        (void)Stepper_Stop(dev);                                           /* déplacement terminé */
+        (void)Stepper_Stop(dev);
         return;
     }
 
@@ -323,7 +315,7 @@ HAL_StatusTypeDef Stepper_Rotate(Stepper_HandleTypeDef *dev, StepperSens_t sens,
     while (Stepper_IsMoving(dev) != 0U)
     {
         HAL_Delay(1U);
-        Stepper_Update(dev);                                               /* rampe + arrêt à la fin */
+        Stepper_Update(dev);
     }
 
     return HAL_OK;
@@ -346,7 +338,7 @@ HAL_StatusTypeDef Stepper_RotateUntil(Stepper_HandleTypeDef *dev, StepperSens_t 
 
     while (stop() == 0U)
     {
-        Stepper_Update(dev);                                               /* rampe d'accélération */
+        Stepper_Update(dev);
 
         if ((uint32_t)(HAL_GetTick() - t0) >= timeout_ms)
         {

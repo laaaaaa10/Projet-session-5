@@ -2,32 +2,31 @@
  * drive_motor.c
  *
  *  Created on: 26 nov. 2026
- *      Author: Layten
+ *      Author: Javier Bolduc
  *
- * Voir drive_motor.h pour le branchement.
- * Le timer TIM4 est configuré ici (pas dans CubeMX) : PD12 = TIM4 CH1, 84 MHz / 4200 = 20 kHz.
+ * PWM sur TIM4 CH1 (PD12), configuré ici (pas dans CubeMX).
  */
 
 #include "drive_motor.h"
 
-#define DRIVEMOTOR_TIM_CLK_HZ   84000000U                                   /* TIM4 sur APB1, comme TIM3 et TIM12 */
-#define DRIVEMOTOR_PWM_HZ       10000U                                      /* L298N : 1 à 20 kHz (plus haut = plus chaud) */
+#define DRIVEMOTOR_TIM_CLK_HZ   84000000U
+#define DRIVEMOTOR_PWM_HZ       10000U
 #define DRIVEMOTOR_PERIOD       ((DRIVEMOTOR_TIM_CLK_HZ / DRIVEMOTOR_PWM_HZ) - 1U)
-#define DRIVEMOTOR_REVERSE_MS   20U                                         /* pause à l'arrêt avant d'inverser le sens */
+#define DRIVEMOTOR_REVERSE_MS   20U                                         /* arrêt avant d'inverser le sens */
 
 #define DRIVEMOTOR_EN_PORT      GPIOD
-#define DRIVEMOTOR_EN_PIN       GPIO_PIN_12                                 /* ENA : PWM (vitesse) */
+#define DRIVEMOTOR_EN_PIN       GPIO_PIN_12                                 /* ENA (PWM) */
 #define DRIVEMOTOR_IN1_PORT     GPIOD
-#define DRIVEMOTOR_IN1_PIN      GPIO_PIN_13                                 /* IN1 : sens */
+#define DRIVEMOTOR_IN1_PIN      GPIO_PIN_13                                 /* IN1 (sens) */
 #define DRIVEMOTOR_IN2_PORT     GPIOD
-#define DRIVEMOTOR_IN2_PIN      GPIO_PIN_15                                 /* IN2 : toujours l'inverse de IN1 */
+#define DRIVEMOTOR_IN2_PIN      GPIO_PIN_15                                 /* IN2 (inverse de IN1) */
 
 static TIM_HandleTypeDef htim_dc;
 static uint8_t initialised = 0U;
 static uint8_t running = 0U;
 static DriveMotorSens_t current_sens = DRIVEMOTOR_RENTRER;
 
-/* IN1 = sens, IN2 = l'inverse (le L298N tourne seulement si IN1 et IN2 sont différents). */
+/* IN2 = inverse de IN1 (le L298N tourne seulement si les deux sont différents). */
 static void set_direction(DriveMotorSens_t sens)
 {
     GPIO_PinState in1 = (GPIO_PinState)sens;
@@ -54,7 +53,7 @@ HAL_StatusTypeDef DriveMotor_Init(void)
     __HAL_RCC_GPIOD_CLK_ENABLE();
     __HAL_RCC_TIM4_CLK_ENABLE();
 
-    /* IN1 / IN2 : sorties, sens "rentrer" au départ */
+    /* IN1 / IN2 : sorties */
     set_direction(DRIVEMOTOR_RENTRER);
     gpio.Pin = DRIVEMOTOR_IN1_PIN;
     gpio.Mode = GPIO_MODE_OUTPUT_PP;
@@ -64,7 +63,7 @@ HAL_StatusTypeDef DriveMotor_Init(void)
     gpio.Pin = DRIVEMOTOR_IN2_PIN;
     HAL_GPIO_Init(DRIVEMOTOR_IN2_PORT, &gpio);
 
-    /* PWM sur TIM4 CH1, rapport cyclique 0 % : ENA reste à 0 (pont coupé) */
+    /* PWM sur TIM4 CH1, 0 % */
     htim_dc.Instance = TIM4;
     htim_dc.Init.Prescaler = 0U;
     htim_dc.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -89,7 +88,7 @@ HAL_StatusTypeDef DriveMotor_Init(void)
         return HAL_ERROR;
     }
 
-    /* PD12 passe du GPIO (LED LD4 par défaut) à la sortie du timer, seulement quand tout est prêt */
+    /* PD12 passe en sortie du timer */
     gpio.Pin = DRIVEMOTOR_EN_PIN;
     gpio.Mode = GPIO_MODE_AF_PP;
     gpio.Pull = GPIO_NOPULL;
@@ -115,7 +114,7 @@ HAL_StatusTypeDef DriveMotor_Run(DriveMotorSens_t sens, uint8_t duty_percent)
 
     if ((running != 0U) && (sens != current_sens))
     {
-        set_duty(0U);                          /* arrêt avant d'inverser le sens */
+        set_duty(0U);
         HAL_Delay(DRIVEMOTOR_REVERSE_MS);
     }
 
@@ -147,6 +146,6 @@ HAL_StatusTypeDef DriveMotor_Move(DriveMotorSens_t sens, uint8_t duty_percent, u
     {
         return HAL_ERROR;
     }
-    HAL_Delay(duration_ms);                    /* durée du déplacement */
+    HAL_Delay(duration_ms);
     return DriveMotor_Stop();
 }
