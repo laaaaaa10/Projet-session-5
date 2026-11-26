@@ -32,6 +32,8 @@ class RaccordementRetrait:
         self.gestion, self.t04 = gestion, t04
         self.etat_service = etat_service or (lambda: "HORS_SERVICE")
         self.raison = raison
+        self._confirmation = None
+        self._refus = None
         if gestion is not None:
             if gestion.facturation is not t04 or gestion.demande.facturation is not t04:
                 raise ValueError("Un seul propriétaire T04 attendu")
@@ -47,6 +49,16 @@ class RaccordementRetrait:
         if ligne is None:
             return None
         phase, message = ligne['etape'], ligne['message']
+        if ligne['id'] == g.demande.id_demande:
+            if self._confirmation == ligne['id'] and g.demande.etape == D.DEMANDE:
+                phase = 'VERIFICATION_IR'
+            elif (g.demande.etape == D.PAYE and not g.occupe
+                  and g.lecture_ir.cle == (ligne['id'], 'depart') and g.lecture_ir.en_attente):
+                phase = 'VERIFICATION_IR_APRES_PAIEMENT'
+            if g.demande.etape == D.INTERROMPU and g.derniere_erreur:
+                message = g.derniere_erreur
+        if self._refus is not None and self._refus[0] == ligne['id']:
+            message = self._refus[1]
         if g.id_demande == ligne['id'] and g.etape != M.INACTIF:
             phase, message = g.etape.value, g.derniere_erreur
         fenetre = json.loads(ligne['fenetre']) if ligne['fenetre'] else None
@@ -69,27 +81,39 @@ class RaccordementRetrait:
             return VueRetrait(id_demande, numero, "REFUSE", g.demande.derniere_erreur)
         return self.vue(id_demande)
 
+    def _annuler_avec_raison(self, id_demande, raison):
+        self._refus = (id_demande, raison)
+        self.annuler(id_demande)
+        return self.vue(id_demande)
+
     def confirmer(self, id_demande):
         g = self.gestion
         if g is None:
             return None
-        if id_demande != g.demande.id_demande:
+        if id_demande != g.demande.id_demande or g.demande.etape != D.DEMANDE:
             return self.vue(id_demande)
-        if g.demande.etape == D.DEMANDE:
-            # Contrôle AVANT gel et débit ; une confirmation répétée ne le refait pas.
-            raison = ("Borne hors service" if self.etat_service() != "EN_SERVICE" else
-                      g.verifier_disponibilite(g.demande.instantane()['place']))
-            if raison:
-                g.demande.annuler(id_demande)
-                vue = self.vue(id_demande)
-                return VueRetrait(id_demande, vue.numero, "ANNULE", raison)
-        g.confirmer_retrait_et_figer_montant(id_demande)
+        if self._confirmation == id_demande:
+            return self.vue(id_demande)
+        # Une ancienne mesure IR ne doit ni autoriser le gel ni empêcher sa
+        # préparation : demander de nouvelles observations, sans mouvement.
+        raison = ("Borne hors service" if self.etat_service() != "EN_SERVICE" else
+                  g.verifier_disponibilite(g.demande.instantane()['place'], avec_ir=False))
+        if raison:
+            return self._annuler_avec_raison(id_demande, raison)
+        self._confirmation = id_demande
+        if not g.demander_lecture_ir(id_demande, 'paiement'):
+            g.arreter()
+            self._confirmation = None
         return self.vue(id_demande)
 
     def annuler(self, id_demande):
         if self.gestion is None:
             return None
-        self.gestion.demande.annuler(id_demande)
+        g = self.gestion
+        annule = g.demande.annuler(id_demande)
+        if annule and id_demande == g.demande.id_demande:
+            g.lecture_ir.annuler()
+            self._confirmation = None
         return self.vue(id_demande)
 
     def _service_permet_suite(self):
@@ -126,12 +150,36 @@ class RaccordementRetrait:
                 and not self._service_permet_suite()):
             g.arreter()
         g.mettre_a_jour()
+        if g.etape in (M.DEFAUT, M.INTERROMPU):
+            if g.demande.etape not in (None, D.INTERROMPU, D.ANNULE, D.EXPIRE, D.CLOTURE):
+                g.arreter()
+            self._confirmation = None
+            return
+        if self._confirmation is not None:
+            identifiant = self._confirmation
+            if g.demande.etape != D.DEMANDE:
+                g.lecture_ir.annuler()
+                self._confirmation = None
+            elif self.etat_service() != "EN_SERVICE":
+                self._annuler_avec_raison(identifiant, "Borne hors service")
+            elif g.lecture_ir.etat == 'TERMINEE':
+                self._confirmation = None
+                raison = g.verifier_disponibilite(g.demande.instantane()['place'])
+                if raison:
+                    self._annuler_avec_raison(identifiant, raison)
+                else:
+                    g.confirmer_retrait_et_figer_montant(identifiant)
         if g.demande.etape == D.INCERTAIN:
             g.arreter()  # aucune reprise automatique d'une réponse financière incertaine
         elif g.demande.paiement_valide and not g.occupe:
-            if not g.autoriser_apres_paiement(g.demande.id_demande):
-                # Un refus après paiement exige une intervention ; pas de réessai au timer suivant.
-                g.arreter()
+            identifiant = g.demande.id_demande
+            if g.lecture_ir.cle != (identifiant, 'depart'):
+                if not g.demander_lecture_ir(identifiant, 'depart'):
+                    g.arreter()
+            elif g.lecture_ir.etat == 'TERMINEE':
+                if not g.autoriser_apres_paiement(identifiant):
+                    # Refus après paiement : intervention, jamais un réessai au timer suivant.
+                    g.arreter()
 
     def fermer(self):
         if self.gestion is not None:

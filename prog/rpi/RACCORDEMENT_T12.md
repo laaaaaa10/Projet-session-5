@@ -1,7 +1,10 @@
 # T12 — Parcours de retrait dans la borne T01
 
 Base : `e04eb954df11c4134c042b567359a7edb7c422f0` (PR #4 fusionnée).
-Branche : `raccordement-t12`. Vérifications du 26 novembre 2026.
+Branche du jalon initial : `raccordement-t12`. Vérifications du 26 novembre 2026.
+La lecture IR ajoutée ensuite et ses résultats actuels sont décrits dans
+[LECTURE_IR_T12.md](LECTURE_IR_T12.md). Les nombres d'essais ci-dessous sont ceux
+du jalon initial de raccordement.
 
 ## Portée vérifiable
 
@@ -95,10 +98,10 @@ redémarrage du travailleur. Comptes et journaux sont temporaires.
 2. Producteur réel de `ConditionsRetrait`, références/barrière vérifiées,
    correspondance des 14 IR et trajet de sortie validés. Le modèle T01 simulé
    « places absentes » et `conditions_confirmation() == True` ne sont pas des preuves.
-3. Observations IR suffisamment fraîches au moment du départ : T12 exige moins
-   de 1,5 s. La synchronisation CAN périodique de 60 s ne suffit pas à elle seule
-   après une attente de paiement ; le propriétaire T06 doit organiser leur
-   acquisition avant autorisation, sans transformer une synchronisation en départ.
+3. Réponses IR réelles et fraîches au moment du départ : T12 demande désormais
+   les états complets avant paiement et avant départ (voir LECTURE_IR_T12.md).
+   T06 doit encore fournir les observations actuelles validées sur 0x302.
+   Une synchronisation ne doit jamais être transformée en départ manuel.
 4. Adaptateur T13 réel vers T03/T11/T12/sécurité, construit dans le même fil et
    relié à la supervision MQTT. Lui seul autorise les nouvelles demandes ; le
    raccordement vérifie aussi `EN_SERVICE` / `MISE_HORS_SERVICE`.

@@ -245,6 +245,11 @@ class ControleurInterface(QObject):
         if phase == "DEMANDE":
             ecran.afficher()
             self.minuterie_inactivite.start()
+        elif phase == "VERIFICATION_IR":
+            s.en_cours = False
+            self.minuterie_inactivite.stop()
+            ecran.afficher_etat("Vérification des capteurs avant le paiement…")
+            ecran.bouton_annuler.setEnabled(True)
         elif phase == "ATTENTE_PAIEMENT":
             s.en_cours = False
             self.minuterie_inactivite.stop()  # T04 seul expire les 60 s ; l'activité ne les prolonge pas
@@ -255,6 +260,7 @@ class ControleurInterface(QObject):
             self.minuterie_inactivite.stop()
             ecran.bouton_annuler.setEnabled(False)
             messages = {
+                "VERIFICATION_IR_APRES_PAIEMENT": "Paiement validé. Vérification des capteurs avant départ…",
                 "PAYE_ATTENTE_MECANIQUE": "Paiement validé. Vérification avant récupération…",
                 "ATTENTE_RETRAIT_MANUEL": "Véhicule sur la rampe de sortie.\nRetirez votre véhicule.",
                 "ATTENTE_PRESENCE_SORTIE": "Vérification de la présence du véhicule sur la rampe…",
