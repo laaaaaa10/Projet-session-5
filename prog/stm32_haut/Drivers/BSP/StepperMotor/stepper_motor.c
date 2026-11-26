@@ -328,3 +328,32 @@ HAL_StatusTypeDef Stepper_Rotate(Stepper_HandleTypeDef *dev, StepperSens_t sens,
 
     return HAL_OK;
 }
+
+HAL_StatusTypeDef Stepper_RotateUntil(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t freq_hz,
+                                      uint8_t (*stop)(void), uint32_t timeout_ms)
+{
+    if ((dev == NULL) || (stop == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    if (Stepper_Run(dev, sens, freq_hz) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+
+    uint32_t t0 = HAL_GetTick();
+
+    while (stop() == 0U)
+    {
+        Stepper_Update(dev);                                               /* rampe d'accélération */
+
+        if ((uint32_t)(HAL_GetTick() - t0) >= timeout_ms)
+        {
+            (void)Stepper_Stop(dev);
+            return HAL_TIMEOUT;
+        }
+    }
+
+    return Stepper_Stop(dev);
+}

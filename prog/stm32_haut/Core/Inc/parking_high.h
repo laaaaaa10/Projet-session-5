@@ -4,21 +4,16 @@
  *  Created on: 25 nov. 2026
  *      Author: Layten
  *
- * Logique du stationnement haut (STM32 HAUT) : ascenseur (3 étages, capteurs inductifs) + plateau tournant
- * (7 emplacements répartis sur 8 secteurs de 45 degrés, le 8e secteur est vide).
+ * Logique du stationnement haut : ascenseur (3 étages, capteurs inductifs) + plateau tournant
+ * (7 emplacements sur 8 secteurs de 45 degrés, le 8e secteur est vide).
  *
- * Séquence (en boucle) :
- *   - hauteur : étage 1 -> 2 -> 3 -> 2 -> 1 -> 2 ...  (arrêt sur le capteur de l'étage visé, pause à chaque étage)
- *   - à chaque arrêt en hauteur, le plateau tourne d'un emplacement (45 degrés)
- *   - plateau : emplacement 1 -> 7 dans le sens "avant", puis 7 -> 1 dans le sens inverse, et ainsi de suite
- *     (jamais de tour complet, les fils ne s'enroulent pas ; le secteur vide n'est jamais traversé)
+ * Les mouvements sont des appels bloquants (l'accélération est gérée dans le driver stepper_motor.c) :
+ *     Stepper_Rotate(&stepper_rotation, sens, pas, Hz);   tourne le plateau
+ *     go_to_floor(2U, PARKING_UP);                        monte / descend jusqu'au capteur de l'étage 2
  *
- * Au démarrage : le plateau doit être sur l'emplacement 1. La hauteur n'a pas besoin d'être à un endroit précis
- * (elle descend jusqu'au capteur 1).
- *
- * Intégration dans main.c (rien d'autre à faire) :
- *     ParkingHigh_Init(&hi2c1);          une fois, après les MX_..._Init
- *     ParkingHigh_Process();             dans while(1), sans bloquer
+ * Intégration dans main.c :
+ *     ParkingHigh_Init(&hi2c1);     une fois, après les MX_..._Init
+ *     ParkingHigh_Process();        dans while(1)
  */
 
 #ifndef INC_PARKING_HIGH_H_
@@ -27,81 +22,36 @@
 #include "stm32f4xx_hal.h"
 #include "stepper_motor.h"
 
-/* ============================== RÉGLAGES ============================== */
-
-/* 1 = boucle de TEST au démarrage (étages 1-2-3-2-1 + rotation, voir plus haut).
- * 0 = rien ne bouge tout seul : les mouvements viennent des commandes ParkingHigh_Home / Store / Retrieve. */
-#define PARKING_DEMO_LOOP                1U
-
-/* Vitesses (pas par seconde) en régime établi. Au départ, chaque moteur accélère progressivement :
- * voir STEPPER_START_HZ et STEPPER_RAMP_MS dans stepper_motor.h. Moteur qui cale ou manque de force : baisser. */
+/* 1 = ParkingHigh_Process() fait une séquence de TEST (un appel = un cycle, voir parking_high.c).
+ * 0 = rien ne bouge tout seul. */
+#define PARKING_DEMO_LOOP           1U
 
 /* --- Plateau tournant --- */
-/* Nombre de pas pour UN TOUR COMPLET du plateau. Un emplacement = ce nombre / 8.
- * 2000 = mesuré sur le banc (1600 tournait trop peu, 8000 tournait 4 fois trop). Si le plateau avance encore de
- * trop (ou pas assez) d'un emplacement : nouvelle valeur = ancienne x (voulu / mesuré). */
-#define PARKING_ROTATION_STEPS_PER_REV   2000U
-/* Vitesse du plateau (pas/s). Plus bas = plus de force, mais plus lent (1 emplacement = 250 pas). */
-#define PARKING_ROTATION_FREQ_HZ         200U
-/* Sens de la rotation de l'emplacement 1 vers l'emplacement 7. Si le plateau part vers le secteur vide, inverser. */
-#define PARKING_ROTATION_DIR_FORWARD     STEPPER_HORAIRE
+#define PARKING_ROTATION_HZ         200U                /* vitesse (pas/s), plus bas = plus de force */
+#define PARKING_SPACE_STEPS         250U                /* pas pour avancer d'un emplacement (2000 pas = 1 tour, 8 secteurs) */
+#define PARKING_FORWARD             STEPPER_HORAIRE     /* emplacement 1 -> 7. Si le plateau part vers le secteur vide, inverser. */
+#define PARKING_BACKWARD            ((PARKING_FORWARD == STEPPER_HORAIRE) ? STEPPER_ANTIHORAIRE : STEPPER_HORAIRE)
 
 /* --- Hauteur --- */
-#define PARKING_HEIGHT_FREQ_HZ           250U
-/* Sens "monter". Si l'ascenseur descend quand il devrait monter, mettre STEPPER_HORAIRE. */
-#define PARKING_HEIGHT_DIR_UP            STEPPER_ANTIHORAIRE
-/* Temps maximum pour atteindre un étage : au-delà, tout s'arrête (mauvais sens, capteur débranché, bloqué...). */
-#define PARKING_HEIGHT_TIMEOUT_MS        120000U
+#define PARKING_HEIGHT_HZ           250U                /* vitesse (pas/s) */
+#define PARKING_UP                  STEPPER_ANTIHORAIRE /* sens "monter". Si l'ascenseur descend quand il devrait monter, inverser. */
+#define PARKING_DOWN                ((PARKING_UP == STEPPER_HORAIRE) ? STEPPER_ANTIHORAIRE : STEPPER_HORAIRE)
+#define PARKING_HEIGHT_TIMEOUT_MS   120000U             /* étage non atteint après ce délai : le moteur s'arrête */
+#define PARKING_FLOOR_COUNT         3U                  /* capteurs 1 (bas) à 3 (haut) */
 
-/* --- Étages --- */
-#define PARKING_FLOOR_COUNT              3U        /* capteurs 1 (bas) à 3 (haut) */
-#define PARKING_FLOOR_DWELL_MS           3000U     /* durée minimale de l'arrêt à chaque étage */
-#define PARKING_FLOOR_CONFIRM_READS      2U        /* lectures consécutives "détecté" avant d'arrêter (anti-parasites) */
-#define PARKING_SENSOR_FAIL_MAX          3U        /* erreurs I2C consécutives tolérées en déplacement */
+#define PARKING_DWELL_MS            3000U               /* pause à chaque étage (séquence de test seulement) */
 
-/* --- Plateau : emplacements --- */
-#define PARKING_SPACE_COUNT              7U        /* emplacements utilisés */
-#define PARKING_SECTOR_COUNT             8U        /* secteurs de 45 degrés (7 emplacements + 1 vide) */
-
-/* ====================================================================== */
-
-typedef enum
-{
-    PARKING_HIGH_OK = 0,
-    PARKING_HIGH_ERR_INIT,      /* ClickBoard / capteurs introuvables */
-    PARKING_HIGH_ERR_SENSOR,    /* lecture des capteurs impossible (I2C) en déplacement */
-    PARKING_HIGH_ERR_TIMEOUT,   /* étage non atteint dans PARKING_HEIGHT_TIMEOUT_MS */
-    PARKING_HIGH_ERR_MOTOR      /* démarrage d'un moteur impossible */
-} ParkingHigh_Error_t;
-
-/* Initialise le ClickBoard (I2C), les capteurs d'étage et la logique. Ne bouge aucun moteur. */
+/* Initialise le ClickBoard (I2C) et les capteurs d'étage. Ne bouge aucun moteur. */
 HAL_StatusTypeDef ParkingHigh_Init(I2C_HandleTypeDef *hi2c);
 
-/* À appeler le plus souvent possible (boucle principale). Non bloquant. */
+/* À appeler dans la boucle principale. BLOQUANT : avec PARKING_DEMO_LOOP = 1, un appel = un cycle de test. */
 void ParkingHigh_Process(void);
 
-/* Étage atteint ou visé : 1 à 3 (0 = pas encore arrivé au premier étage). */
-uint8_t ParkingHigh_GetFloor(void);
-
-/* Emplacement du plateau : 1 à 7 (emplacement visé pendant une rotation). */
-uint8_t ParkingHigh_GetSpace(void);
-
-/* PARKING_HIGH_OK, sinon la cause de l'arrêt (les deux moteurs sont alors arrêtés). */
-ParkingHigh_Error_t ParkingHigh_GetError(void);
-
-/* ======================================================================
- * COMMANDES (points d'entrée) : à appeler pour demander un mouvement.
- * Pour l'instant personne ne les appelle ; plus tard, le CAN (réception de la commande + réponse ACK)
- * s'y branchera sans rien changer ici. LA LOGIQUE MOTEUR EST À ÉCRIRE : les corps sont vides, voir les TODO
- * dans parking_high.c.
- * Retour : HAL_OK = commande acceptée (le mouvement continue ensuite dans ParkingHigh_Process),
- *          HAL_ERROR = refusée (occupé, case invalide, erreur...).
- * ====================================================================== */
+/* Points d'entrée pour le CAN (ajouté à la fin). La logique est à écrire dans parking_high.c, voir les TODO.
+ * Retour : HAL_OK = exécuté, HAL_ERROR = refusé ou échec. */
 HAL_StatusTypeDef ParkingHigh_Home(void);                   /* initialisation des axes (fins de course) */
 HAL_StatusTypeDef ParkingHigh_Store(uint8_t space);         /* ranger un véhicule dans la case 1 à 14 */
 HAL_StatusTypeDef ParkingHigh_Retrieve(uint8_t space);      /* récupérer le véhicule de la case 1 à 14 */
-
-/* 1 pendant un déplacement, 0 sinon (sera repris plus tard dans l'état envoyé par le CAN). */
-uint8_t ParkingHigh_IsBusy(void);
+uint8_t           ParkingHigh_IsBusy(void);                 /* 1 pendant un déplacement, 0 sinon */
 
 #endif /* INC_PARKING_HIGH_H_ */

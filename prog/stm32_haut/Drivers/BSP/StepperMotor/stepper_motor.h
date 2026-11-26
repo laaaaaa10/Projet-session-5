@@ -47,14 +47,24 @@ typedef struct
     uint32_t           t_move_end;
 } Stepper_HandleTypeDef;
 
-/* Les deux moteurs, déjà prêts (définis dans stepper.c) */
+/* Les deux moteurs, déjà prêts (définis dans stepper_motor.c) */
 extern Stepper_HandleTypeDef stepper_rotation;
 extern Stepper_HandleTypeDef stepper_height;
 
-/* Déplacement BLOQUANT de N pas (avec rampe d'accélération), puis arrêt. */
+/* ======================= FONCTIONS SIMPLES (bloquantes) =======================
+ * L'accélération progressive (et donc la force du moteur) est gérée ICI, dans le driver : il suffit de
+ * donner le sens, le nombre de pas et la vitesse. */
+
+/* Tourne de N pas (sens, pas, fréquence en pas/s), puis s'arrête. Retourne quand le mouvement est fini. */
 HAL_StatusTypeDef Stepper_Rotate(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t steps, uint32_t freq_hz);
 
-/* --- Versions NON bloquantes (le programme continue pendant que le moteur tourne) ---
+/* Tourne jusqu'à ce que stop() retourne 1 (ex. : lecture d'un capteur), puis s'arrête.
+ * Retourne HAL_TIMEOUT si stop() n'a jamais répondu 1 avant timeout_ms. */
+HAL_StatusTypeDef Stepper_RotateUntil(Stepper_HandleTypeDef *dev, StepperSens_t sens, uint32_t freq_hz,
+                                      uint8_t (*stop)(void), uint32_t timeout_ms);
+
+/* ======================= FONCTIONS NON BLOQUANTES (avancé) =======================
+ * Le programme continue pendant que le moteur tourne.
  * Stepper_Update() doit être appelé souvent (boucle principale) : il fait avancer la rampe et arrête
  * le moteur à la fin d'un Stepper_Move. */
 
