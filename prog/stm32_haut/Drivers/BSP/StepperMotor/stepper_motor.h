@@ -1,5 +1,5 @@
 /*
- * stepper.h
+ * stepper_motor.h
  *
  *  Created on: 19 nov. 2026
  *      Author: Javier Bolduc
@@ -9,9 +9,6 @@
 #define INC_STEPPER_MOTOR_H_
 
 #include "stm32f4xx_hal.h"
-
-/* Horloge des timers de STEP : 1 MHz */
-#define STEPPER_TICK_HZ  1000000U
 
 /* Niveau envoyé sur DIR. Si le moteur tourne à l'envers du nom, inverser les deux valeurs. */
 typedef enum

@@ -128,7 +128,11 @@ int main(void)
     
 
     /* USER CODE BEGIN 3 */
-    ParkingHigh_Process();
+    Stepper_Rotate(&stepper_height, STEPPER_HORAIRE, 10000U, 400U);   /* 500 pas = 1 emplacement (demi-pas), Hz */
+    //DriveMotor_Move(DRIVEMOTOR_HORAIRE, 80U, 2000U);  // out, 80% duty, 2s
+   // HAL_Delay(1000U);
+    //DriveMotor_Move(DRIVEMOTOR_ANTIHORAIRE, 80U, 2000U);  
+
   }
   /* USER CODE END 3 */
 }

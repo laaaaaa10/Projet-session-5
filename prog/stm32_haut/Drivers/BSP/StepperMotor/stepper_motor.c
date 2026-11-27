@@ -1,10 +1,9 @@
 /*
- * stepper.c
+ * stepper_motor.c
  *
  *  Created on: 19 nov. 2026
  *      Author: Javier Bolduc
  */
-
 
 #include "stepper_motor.h"
 #include "main.h"
@@ -12,12 +11,15 @@
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim12;
 
+/* Horloge des timers de STEP : 1 MHz (prescaler 83 sur 84 MHz) */
+#define STEPPER_TICK_HZ   1000000U
+
 /* Rampe : départ à STEPPER_START_HZ, montée linéaire jusqu'à la fréquence demandée en STEPPER_RAMP_MS. */
 #define STEPPER_START_HZ  60U
 #define STEPPER_RAMP_MS   800U
 
 /* Jeu de broches de chaque moteur (STEP / DIR) :
- *   0 = PB14 / PC8 (en panne)    1 = PB0 / PC4    2 = PA2 / PA3        (détails dans le README) */
+ *   0 = PB14 / PC8 (en panne)    1 = PB0 / PC4    2 = PA2 / PB5        (détails dans le README) */
 #define STEPPER_ROTATION_PINS   2
 #define STEPPER_HEIGHT_PINS     1
 
@@ -32,8 +34,8 @@ extern TIM_HandleTypeDef htim12;
 
 #define SET2_STEP_PORT   GPIOA
 #define SET2_STEP_PIN    GPIO_PIN_2
-#define SET2_DIR_PORT    GPIOA
-#define SET2_DIR_PIN     GPIO_PIN_3
+#define SET2_DIR_PORT    GPIOB
+#define SET2_DIR_PIN     GPIO_PIN_5
 
 /* TIM5 (jeu 2) n'est pas dans CubeMX : initialisé ici. */
 static TIM_HandleTypeDef htim_set2;

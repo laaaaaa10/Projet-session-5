@@ -4,7 +4,7 @@
  *  Created on: 26 nov. 2026
  *      Author: Javier Bolduc
  *
- * Moteur DC du bras (vérin) par un module L298N, canal A. Branchement : voir le README.
+ * Moteur DC du bras (vérin) par un module L298N, canal A, cavalier ENA en place. Branchement : voir le README.
  */
 
 #ifndef INC_DRIVE_MOTOR_H_
@@ -12,21 +12,20 @@
 
 #include "stm32f4xx_hal.h"
 
-/* Niveau envoyé sur IN1 (IN2 reçoit l'inverse). Si le bras sort quand on demande de rentrer, inverser les deux. */
+/* 1 = PWM sur IN1, 0 = PWM sur IN2. Si le moteur tourne à l'envers du nom, inverser les deux valeurs. */
 typedef enum
 {
-    DRIVEMOTOR_SORTIR  = GPIO_PIN_SET,
-    DRIVEMOTOR_RENTRER = GPIO_PIN_RESET
+    DRIVEMOTOR_HORAIRE     = GPIO_PIN_SET,
+    DRIVEMOTOR_ANTIHORAIRE = GPIO_PIN_RESET
 } DriveMotorSens_t;
 
-/* Configure PD12 (ENA, PWM), PD13 (IN1) et PD15 (IN2). Moteur arrêté. */
+/* Configure PD12 (IN1) et PD13 (IN2) en PWM. Moteur arrêté. */
 HAL_StatusTypeDef DriveMotor_Init(void);
 
-/* Fait tourner le moteur. duty_percent : 1 à 100 (vitesse), 0 = arrêt. Non bloquant
- * (sauf 20 ms d'arrêt si le sens change en marche). */
+/* Fait tourner le moteur. duty_percent : 1 à 100 (vitesse), 0 = arrêt. Non bloquant. */
 HAL_StatusTypeDef DriveMotor_Run(DriveMotorSens_t sens, uint8_t duty_percent);
 
-/* Arrête le moteur. */
+/* Arrête le moteur (IN1 = IN2 = 0 : frein). */
 HAL_StatusTypeDef DriveMotor_Stop(void);
 
 /* Déplace le bras (sens, vitesse 1 à 100 %) pendant duration_ms, puis l'arrête. BLOQUANT.
