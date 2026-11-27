@@ -15,6 +15,8 @@ transmet les demandes et suit les réponses.
       Author: Javier Bolduc
 """
 
+from uuid import uuid4
+
 from PyQt6.QtCore import QEvent, QObject, QTimer
 from PyQt6.QtWidgets import QApplication
 
@@ -67,6 +69,7 @@ class ControleurInterface(QObject):
         f.ecran_accueil.bouton_depot.clicked.connect(self.commencer_depot)
         f.ecran_accueil.bouton_retrait.clicked.connect(self.commencer_retrait)
         f.ecran_recuperation.bouton_annuler.clicked.connect(self.annuler)
+        f.ecran_recuperation.bouton_confirmer.clicked.connect(self.confirmer_retrait)
         f.ecran_message.bouton_ok.clicked.connect(self.retour_accueil)
         f.cadre_reservation.bouton_annuler.clicked.connect(self.annuler)
         f.cadre_saisie_billet.bouton_annuler.clicked.connect(self.annuler)
@@ -89,6 +92,7 @@ class ControleurInterface(QObject):
         pont.paiement_en_attente.connect(self.paiement_en_attente)
         pont.resultat_paiement.connect(self.resultat_paiement)
         pont.paiement_annule.connect(self.paiement_annule)
+        pont.retrait_modifie.connect(self.retrait_modifie)
 
         # Crochets des tâches non livrées
         e = evenements
@@ -119,6 +123,12 @@ class ControleurInterface(QObject):
         s = self.session
         if s.operation is None or s.en_cours:
             return
+        if s.operation == OPERATION_RETRAIT and s.id_retrait is not None:
+            self.minuterie_inactivite.stop()
+            self.f.ecran_recuperation.bouton_annuler.setEnabled(False)
+            self.f.ecran_recuperation.bouton_confirmer.setEnabled(False)
+            self._commander_retrait("annuler_retrait", s.id_retrait)
+            return  # attendre T04 : un paiement concurrent peut déjà avoir réussi
         if s.id_paiement is not None:
             self._annuler_paiement(s.id_paiement)
         self.evenements.operation_annulee.emit()
@@ -191,10 +201,80 @@ class ControleurInterface(QObject):
             return
         s.numero = numero
         self.minuterie_inactivite.start()           # sans réponse de T04 : retour à l'accueil
-        self.evenements.retrait_demande.emit(numero)
+        s.id_retrait = "retrait-" + uuid4().hex
+        self._commander_retrait("demander_retrait", numero, s.id_retrait)
+
+    def _commander_retrait(self, action, *arguments):
+        try:
+            getattr(self.services.pont_t02, action)(*arguments)
+        except RuntimeError:
+            self.session.en_cours = True
+            self._arreter_minuteries()
+            self.f.afficher_ecran("recuperation")
+            self.f.ecran_recuperation.bouton_annuler.setEnabled(False)
+            self.f.ecran_recuperation.afficher_etat("Service indisponible. Contactez le personnel.")
+
+    def confirmer_retrait(self):
+        s = self.session
+        if s.operation != OPERATION_RETRAIT or s.id_retrait is None or s.en_cours:
+            return
+        self.minuterie_inactivite.stop()
+        self.f.ecran_recuperation.bouton_confirmer.setEnabled(False)
+        self._commander_retrait("confirmer_retrait", s.id_retrait)
+
+    def retrait_modifie(self, vue):
+        """Seul le statut corrélé T12 fait progresser le parcours de retrait."""
+        s = self.session
+        if s.operation != OPERATION_RETRAIT or vue.id_demande != s.id_retrait:
+            return
+        ecran = self.f.ecran_recuperation
+        phase = vue.phase
+        if phase == "REFUSE":
+            self.f.page_saisie_billet.afficher_message(vue.message or "Retrait refusé", ok=False)
+            self.minuterie_refus.start()
+            return
+        if phase in ("ANNULE", "EXPIRE"):
+            self._afficher_message("Retrait annulé" if phase == "ANNULE" else "Paiement expiré",
+                vue.message or "Aucun retrait autorisé. La facturation se poursuit.")
+            return
+        if phase in ("TERMINE", "CLOTURE"):
+            self._afficher_message("Retrait terminé", "Véhicule retiré. Transaction clôturée. Merci !")
+            return
+        self.f.afficher_ecran("recuperation")
+        self.minuterie_operation.stop()  # les délais mécaniques appartiennent à T12
+        if phase == "DEMANDE":
+            ecran.afficher()
+            self.minuterie_inactivite.start()
+        elif phase == "VERIFICATION_IR":
+            s.en_cours = False
+            self.minuterie_inactivite.stop()
+            ecran.afficher_etat("Vérification des capteurs avant le paiement…")
+            ecran.bouton_annuler.setEnabled(True)
+        elif phase == "ATTENTE_PAIEMENT":
+            s.en_cours = False
+            self.minuterie_inactivite.stop()  # T04 seul expire les 60 s ; l'activité ne les prolonge pas
+            ecran.afficher_paiement(vue.montant_centimes)
+            ecran.bouton_annuler.setEnabled(True)
+        else:
+            s.en_cours = True
+            self.minuterie_inactivite.stop()
+            ecran.bouton_annuler.setEnabled(False)
+            messages = {
+                "VERIFICATION_IR_APRES_PAIEMENT": "Paiement validé. Vérification des capteurs avant départ…",
+                "PAYE_ATTENTE_MECANIQUE": "Paiement validé. Vérification avant récupération…",
+                "ATTENTE_RETRAIT_MANUEL": "Véhicule sur la rampe de sortie.\nRetirez votre véhicule.",
+                "ATTENTE_PRESENCE_SORTIE": "Vérification de la présence du véhicule sur la rampe…",
+                "CLOTURE_EN_COURS": "Départ détecté. Clôture de la transaction…",
+            }
+            if phase in ("INCERTAIN", "INTERROMPU", "DEFAUT", "CLOTURE_INCERTAINE"):
+                ecran.afficher_etat("Retrait arrêté. Contactez le personnel.\n" + vue.message)
+            else:
+                ecran.afficher_etat(messages.get(phase, "Récupération du véhicule en cours…"))
 
     def resultat_retrait(self, trouve, message):
         s = self.session
+        if s.id_retrait is not None:
+            return
         if (s.operation != OPERATION_RETRAIT or s.numero is None
                 or self.f.ecran_courant() != "saisie_billet"):
             return
@@ -209,6 +289,9 @@ class ControleurInterface(QObject):
 
     def paiement_en_attente(self, demande):
         s = self.session
+        if s.operation == OPERATION_RETRAIT and s.id_retrait is not None:
+            s.id_paiement = demande.id_transaction
+            return  # le montant et la phase affichés viennent de l'instantané T12
         if (s.operation != OPERATION_RETRAIT or s.en_cours
                 or self.f.ecran_courant() != "recuperation"):
             return
@@ -219,6 +302,13 @@ class ControleurInterface(QObject):
     def resultat_paiement(self, resultat):
         s = self.session
         if s.en_cours or s.id_paiement is None or resultat.id_transaction != s.id_paiement:
+            return
+        if s.id_retrait is not None:
+            # Le reçu T02 est observable ; seul T04/T12 valide la fenêtre et le départ.
+            if resultat.statut != StatutOperation.PAIE:
+                self.f.ecran_recuperation.afficher_etat(
+                    RAISONS_REFUS.get(resultat.statut, "Paiement refusé.") +
+                    "\nPrésentez une carte pouvant payer le montant entier avant l'échéance.")
             return
         if resultat.statut == StatutOperation.PAIE:
             s.en_cours = True
@@ -231,6 +321,8 @@ class ControleurInterface(QObject):
 
     def paiement_annule(self, id_transaction):
         s = self.session
+        if s.id_retrait is not None:
+            return  # attendre le résultat corrélé T04/T12, y compris en cas de débit concurrent
         if s.id_paiement == id_transaction and not s.en_cours:
             self._afficher_message("Paiement annulé", "Le paiement a été annulé.")
 
@@ -238,6 +330,8 @@ class ControleurInterface(QObject):
 
     def etat_operation(self, etat, message):
         s = self.session
+        if s.id_retrait is not None:
+            return
         if not s.en_cours:
             return
         depot = s.operation == OPERATION_DEPOT
@@ -281,6 +375,12 @@ class ControleurInterface(QObject):
         self._rafraichir_disponibilite()
 
     def erreur_lecteur(self, incident):
+        if incident.fatal and self.session.operation == OPERATION_RETRAIT:
+            self.session.en_cours = True
+            self._arreter_minuteries()
+            self.f.afficher_ecran("recuperation")
+            self.f.ecran_recuperation.bouton_annuler.setEnabled(False)
+            self.f.ecran_recuperation.afficher_etat("Retrait interrompu. Contactez le personnel.")
         if incident.fatal:
             self.lecteur_pret = False
             self.raison_lecteur = "Lecteur de cartes indisponible."
@@ -322,6 +422,7 @@ class ControleurInterface(QObject):
     def _nouvelle_saisie(self):
         if self.session.operation == OPERATION_RETRAIT and self.f.ecran_courant() == "saisie_billet":
             self.session.numero = None
+            self.session.id_retrait = None
             self.f.page_saisie_billet.reinitialiser()
 
     def _afficher_message(self, titre, texte):

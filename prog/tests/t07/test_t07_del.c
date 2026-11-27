@@ -64,6 +64,17 @@ static int derniere_reponse(uint16_t id, uint8_t seq, uint8_t val, uint8_t res)
     return t->id == id && t->dlc == 3 && t->data[0] == seq && t->data[1] == val && t->data[2] == res;
 }
 
+/* Surcouche d'essai : met l'indice 3 en (9, 8, 7) */
+static int nb_appels_surcouche = 0;
+static uint8_t nb_del_surcouche = 0;
+static void surcouche_essai(T07_Couleur *image, uint8_t nb_del, uint32_t maintenant_ms)
+{
+    (void)maintenant_ms;
+    nb_appels_surcouche++;
+    nb_del_surcouche = nb_del;
+    image[3].r = 9; image[3].v = 8; image[3].b = 7;
+}
+
 int main(void)
 {
     uint32_t t = 0;
@@ -225,6 +236,12 @@ int main(void)
     VERIFIE(T07_Init(&T07_CONFIG_HAUT, &spi, espion_envoyer), "init HAUT");
     T07_Tache(0);
     VERIFIE(spi.last_size == 68, "HAUT : trame de 15 DEL (PCB-03)");
+    ok = 1;
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 64, 64, 64);
+    for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 64, 0, 0);
+    VERIFIE(ok, "HAUT : démarrage, éclairage blanc modéré dessous et ambiance rouge sur les parkings");
+    uint8_t ar = 1, av = 1, ab = 1;
+    VERIFIE(T07_LireAmbiance(&ar, &av, &ab) && ar == 64 && av == 0 && ab == 0, "HAUT : T07_LireAmbiance au démarrage");
     cmd(0x340, 6, 50, 3, 1, 1, 1, 0);
     cmd(0x340, 6, 51, 10, 1, 1, 1, 0);
     cmd(0x340, 6, 52, 0, 1, 1, 1, 0);
@@ -238,11 +255,55 @@ int main(void)
     T07_Tache(10);
     ok = 1;
     for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 200, 100, 50);
-    for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 0, 0, 0);
-    VERIFIE(ok, "HAUT : éclairage sur les indices pairs, témoins du dessus éteints");
+    for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 64, 0, 0);
+    VERIFIE(ok, "HAUT : éclairage sur les indices pairs, ambiance des parkings inchangée");
     T07_SignalerRpi(true); T07_SignalerRpi(false);
     T07_Tache(20);
-    VERIFIE(del_est(0, 200, 100, 50) && del_est(1, 0, 0, 0), "HAUT : perte du RPi, éclairage conservé, rien en jaune");
+    VERIFIE(del_est(0, 200, 100, 50) && del_est(1, 64, 0, 0), "HAUT : perte du RPi, éclairage et ambiance conservés, rien en jaune");
+    VERIFIE(T07_ReglerAmbiance(0, 0, 200), "HAUT : T07_ReglerAmbiance accepté");
+    T07_Tache(30);
+    ok = 1;
+    for (int k = 0; k <= 14; k += 2) ok &= del_est(k, 200, 100, 50);
+    for (int k = 1; k <= 13; k += 2) ok &= del_est(k, 0, 0, 200);
+    VERIFIE(ok, "HAUT : nouvelle ambiance sur les 7 parkings, éclairage du dessous inchangé");
+    VERIFIE(T07_LireAmbiance(&ar, &av, &ab) && ar == 0 && av == 0 && ab == 200, "HAUT : T07_LireAmbiance après réglage");
+    VERIFIE(T07_Init(&T07_CONFIG_HAUT, &spi, espion_envoyer) && T07_LireAmbiance(&ar, &av, &ab) && ar == 64 && av == 0 && ab == 0,
+            "HAUT : T07_Init remet l'ambiance rouge de démarrage");
+
+    /* ===== Configuration d'essai sur le banc : BAS + éclairage du niveau 0 ===== */
+    nb_envoyees = 0;
+    VERIFIE(T07_Init(&T07_CONFIG_BAS_BANC, &spi, espion_envoyer), "init BAS_BANC");
+    VERIFIE(T07_ConfigActive() == &T07_CONFIG_BAS_BANC, "T07_ConfigActive : config du banc");
+    T07_Tache(0);
+    VERIFIE(del_est(0, 64, 64, 64), "BAS_BANC : éclairage blanc modéré au démarrage");
+    cmd(0x130, 5, 60, 0, 10, 20, 30, 0);
+    VERIFIE(derniere_reponse(0x350, 60, 0, 1), "BAS_BANC : niveau 0 appliqué (0x350)");
+    cmd(0x340, 6, 61, 1, 0, 0, 255, 0);
+    VERIFIE(derniere_reponse(0x341, 61, 1, 1), "BAS_BANC : place 1 → 0x341");
+    T07_Tache(10);
+    VERIFIE(del_est(0, 10, 20, 30) && del_est(14, 10, 20, 30) && del_est(1, 0, 0, 255),
+            "BAS_BANC : éclairage sur les indices pairs, place 1 sur l'indice 1");
+    VERIFIE(!T07_ReglerAmbiance(1, 2, 3) && !T07_LireAmbiance(&ar, &av, &ab), "BAS_BANC : pas d'ambiance, réglage refusé");
+
+    /* ===== Surcouche (animation disco) ===== */
+    T07_Tache(20);
+    T07_DefinirSurcouche(surcouche_essai);
+    cmd(0x340, 6, 62, 2, 30, 30, 30, 0);
+    VERIFIE(derniere_reponse(0x341, 62, 2, 1), "surcouche : les commandes sont encore traitées");
+    T07_Tache(30);
+    VERIFIE(nb_appels_surcouche >= 1 && nb_del_surcouche == 15, "surcouche appelée avec les 15 DEL");
+    VERIFIE(del_est(3, 9, 8, 7) && del_est(1, 0, 0, 255) && del_est(0, 10, 20, 30),
+            "surcouche : seule la DEL modifiée change, le reste garde l'image de T07");
+    int envois_avant = spi.dma_calls;
+    T07_Tache(31);
+    VERIFIE(spi.dma_calls == envois_avant, "surcouche : image identique, rien n'est renvoyé");
+    VERIFIE(T07_Init(&T07_CONFIG_BAS_BANC, &spi, espion_envoyer), "T07_Init pendant une surcouche");
+    T07_Tache(32);
+    VERIFIE(del_est(3, 9, 8, 7), "T07_Init garde la surcouche (la disco reste cohérente)");
+    T07_DefinirSurcouche(NULL);
+    cmd(0x340, 6, 63, 2, 30, 30, 30, 0);
+    T07_Tache(40);
+    VERIFIE(del_est(3, 30, 30, 30), "surcouche retirée : image normale de T07 (place 2)");
 
     /* ===== Configurations invalides refusées par T07_Init ===== */
     static const uint8_t indice_trop_grand[1] = { 15u };
@@ -257,6 +318,13 @@ int main(void)
     mauvaise.indice_place = indice_trop_grand;
     mauvaise.nb_places = 1u;
     VERIFIE(!T07_Init(&mauvaise, &spi, espion_envoyer), "indice de place hors de la chaîne refusé");
+    mauvaise = T07_CONFIG_HAUT;
+    mauvaise.indices_ambiance = indice_trop_grand;
+    mauvaise.nb_ambiance = 1u;
+    VERIFIE(!T07_Init(&mauvaise, &spi, espion_envoyer), "indice d'ambiance hors de la chaîne refusé");
+    mauvaise = T07_CONFIG_HAUT;
+    mauvaise.indices_ambiance = NULL;
+    VERIFIE(!T07_Init(&mauvaise, &spi, espion_envoyer), "ambiance sans table refusée");
 
     printf("%d/%d vérifications réussies\n", total - echecs, total);
     return echecs == 0 ? 0 : 1;

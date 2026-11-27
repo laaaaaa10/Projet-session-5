@@ -31,6 +31,7 @@ import time
 from datetime import datetime
 from enum import Enum
 
+from modules.arbitrage_mecanique import arbitre_du_can
 from modules.stationnement import EtatPlace, PLACES_PAR_ETAGE, Presence
 
 # --- Identifiants CAN (protocole v1.6) --------------------------------------------
@@ -117,6 +118,7 @@ class GestionDepot:
                         appelée UNE SEULE FOIS par dépôt confirmé.
         """
         self._can = can
+        self._arbitre = arbitre_du_can(can)
         self._modele = stationnement
         self._facturation = facturation
         self._delai_acceptation = delai_acceptation_s
@@ -163,6 +165,9 @@ class GestionDepot:
                 self.derniere_erreur = f"présence IR dans la place {place}"
                 return False
 
+            if not self._arbitre.prendre(self):
+                self.derniere_erreur = "mécanique occupée, arrêt verrouillé ou hors service"
+                return False
             self._reinitialiser()
             self.transaction_id = transaction_id
             self.niveau, self.position, self.place = niveau, position, place
@@ -175,6 +180,9 @@ class GestionDepot:
         """Surveille les délais. À appeler périodiquement (100-250 ms)."""
         with self._verrou:
             if not self.occupe:
+                return
+            if self._arbitre.bloque:
+                self.arreter()
                 return
             maintenant = self._horloge()
             cmd = self._courante
@@ -200,6 +208,7 @@ class GestionDepot:
         with self._verrou:
             if identifiant in ID_ARRETS:
                 if self.occupe:
+                    self._arbitre.verrouiller("arrêt CAN reçu par T11")
                     self.etape = EtapeDepot.INTERROMPU
                     self.derniere_erreur = f"arrêt reçu (ID 0x{identifiant:03X})"
                     self._courante = None
@@ -228,6 +237,7 @@ class GestionDepot:
                 return
             if self._courante is not None:
                 self._envoyer_arret(self._courante)
+            self._arbitre.verrouiller("arrêt T11")
             self.etape = EtapeDepot.INTERROMPU
             self.derniere_erreur = "arrêt demandé"
             self._courante = None
@@ -237,6 +247,8 @@ class GestionDepot:
         nouveau dépôt. Ne lance AUCUN mouvement."""
         with self._verrou:
             if self.etape not in (EtapeDepot.DEFAUT, EtapeDepot.INTERROMPU):
+                return False
+            if not self._arbitre.acquitter(self):
                 return False
             self.etape = EtapeDepot.INACTIF
             return True
@@ -278,27 +290,32 @@ class GestionDepot:
         ]
 
     def _nouvelle_sequence(self):
-        self._sequence = (self._sequence + 1) % 256
-        if self._sequence == SEQ_SPONTANEE:          # 0xFF réservé aux états spontanés
-            self._sequence = 0
-        return self._sequence
+        return self._arbitre.sequence()
 
     def _lancer_suivante(self):
+        if self._arbitre.bloque:
+            self.arreter()
+            return
         if not self._commandes:
             self._courante = None
             self.sequence_terminee = True
             if self.depot_confirme:
                 self.etape = EtapeDepot.TERMINE
+                self._arbitre.liberer(self)
             return
         cmd = self._commandes.pop(0)
-        cmd.sequence = self._nouvelle_sequence()
+        try:
+            cmd.sequence = self._nouvelle_sequence()
+        except RuntimeError as erreur:
+            self._defaut(str(erreur))
+            return
         cmd.t_depart = self._horloge()
         self._courante = cmd
         self.etape = cmd.etape
         if cmd.identifiant == ID_ELEVATION_CMD and cmd.action == ELEV_ABAISSER:
             self._ir_attendu = True                   # le véhicule peut être détecté en descendant
         try:
-            self._can.envoyer(cmd.identifiant, bytes([cmd.sequence, cmd.action, cmd.parametre]))
+            self._arbitre.envoyer(self, self._can, cmd.identifiant, bytes([cmd.sequence, cmd.action, cmd.parametre]))
         except Exception as erreur:
             self._defaut(f"{cmd.description} : envoi CAN impossible ({erreur})")
 
@@ -351,6 +368,7 @@ class GestionDepot:
             self.derniere_erreur = f"facturation : {erreur}"     # dépôt réel : on ne recommence pas
         if self.sequence_terminee:
             self.etape = EtapeDepot.TERMINE
+            self._arbitre.liberer(self)
 
     def _envoyer_arret(self, cmd):
         action = {ID_ELEVATION_CMD: ELEV_ARRET, ID_ROTATION_CMD: ROT_ARRET, ID_BRAS_CMD: BRAS_ARRET}
@@ -362,6 +380,7 @@ class GestionDepot:
             pass                                      # le défaut est signalé de toute façon
 
     def _defaut(self, raison, place_en_defaut=False):
+        self._arbitre.verrouiller(raison)
         self.etape = EtapeDepot.DEFAUT
         self.derniere_erreur = raison
         self._courante = None

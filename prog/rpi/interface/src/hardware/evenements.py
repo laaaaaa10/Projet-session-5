@@ -36,8 +36,8 @@ class EvenementsBorne(QObject):
 
     # --- Signaux de sortie (écran -> autres tâches) --------------------------
     billet_confirme = pyqtSignal(int, int)    # (transaction, place 1-14) -> T03 : barrière, puis T11
-    retrait_demande = pyqtSignal(int)         # numéro du billet -> T04 : vérifier, puis paiement T02
-    operation_annulee = pyqtSignal()          # l'usager a annulé ou le délai est dépassé
+    retrait_demande = pyqtSignal(int)         # ancien crochet ; T01 utilise désormais PontT02Qt/T12
+    operation_annulee = pyqtSignal()          # dépôt ; annulation retrait via PontT02Qt/T12
 
     # --- Crochets d'entrée ---------------------------------------------------
 

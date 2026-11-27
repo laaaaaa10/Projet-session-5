@@ -12,6 +12,9 @@
 #include "esa_noeud.h"
 #include "t07_del.h"
 #include "main.h"
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
+#include "t06_ir.h"
+#endif
 
 #if (ESA_NOEUD == ESA_NOEUD_BAS)
 #define ID_HEARTBEAT_NOEUD   CAN_ID_HEARTBEAT_BAS
@@ -70,7 +73,9 @@ void Noeud_Tache(uint32_t maintenant_ms)
         }
 
         T07_TraiterTrame(trame.id, trame.dlc, trame.data);
-        /* T06 : IR_LECTURE_CMD (0x302) et SYNCHRO_CMD (0x080) s'ajouteront ici */
+#if (ESA_NOEUD == ESA_NOEUD_BAS)
+        T06_TraiterTrame(trame.id, trame.dlc, trame.data);   /* IR_LECTURE_CMD 0x302, SYNCHRO_CMD 0x080 */
+#endif
 
         if (s_observateur != NULL)
         {
