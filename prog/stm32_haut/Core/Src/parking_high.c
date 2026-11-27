@@ -46,9 +46,9 @@ void ParkingHigh_Process(void)
 {
 #if (PARKING_DEMO_LOOP != 0U)
     /* TEST : le plateau avance d'un emplacement (45 degrés), pause, puis revient. */
-    Stepper_Rotate(&stepper_rotation, PARKING_FORWARD,  250U, 200U);    /* sens, pas (2000 = 1 tour), Hz */
+    Stepper_Rotate(&stepper_rotation, PARKING_FORWARD,  1000U, 280U);    /* sens, pas (2000 = 1 tour), Hz */
     HAL_Delay(3000U);
-    Stepper_Rotate(&stepper_rotation, PARKING_BACKWARD, 250U, 200U);
+    Stepper_Rotate(&stepper_rotation, PARKING_BACKWARD, 1000U, 280U);
     HAL_Delay(3000U);
 #endif
 }
